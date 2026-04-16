@@ -30,9 +30,6 @@
 
 ```env
 EXPO_PUBLIC_API_BASE_URL=http://localhost:3000
-EXPO_PUBLIC_MANAGER_LOGIN=manager
-EXPO_PUBLIC_MANAGER_EMAIL=manager@giotto.local
-EXPO_PUBLIC_MANAGER_PASSWORD=manager123
 ```
 
 ### Важно для реального устройства
@@ -42,6 +39,8 @@ EXPO_PUBLIC_MANAGER_PASSWORD=manager123
 ```env
 EXPO_PUBLIC_API_BASE_URL=http://192.168.1.20:3000
 ```
+
+Примечание: приложение также пытается автоматически подставить IP dev-машины из Expo host, если в `.env` указан `localhost`.
 
 ## Запуск
 ```bash
@@ -55,5 +54,5 @@ npm run start
 - `w` — Web
 
 ## Замечания
-- Для официанта используется серверный login endpoint.
-- Для менеджера в мобильном приложении используется проверка логина/пароля по env (UX-слой), при этом все данные менеджера грузятся с сервера сайта.
+- Для официанта и менеджера используется единый серверный login endpoint `/api/auth/login`.
+- Учётные записи обеих ролей хранятся на сервере сайта (hall state / DB слой).

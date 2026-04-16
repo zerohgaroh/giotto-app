@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { fetchHallData, loginWaiter, logoutWaiter } from "../api/client";
+import { loginStaff, logoutWaiter } from "../api/client";
 
 type Role = "waiter" | "manager";
 
@@ -13,27 +13,13 @@ type AuthContextValue = {
   loading: boolean;
   role: Role | null;
   waiter: WaiterSession | null;
-  signInWaiter: (login: string, password: string) => Promise<void>;
-  signInManager: (login: string, password: string) => Promise<void>;
+  signIn: (login: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
 const STORAGE_KEY = "giotto.mobile.auth.v1";
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-
-function getManagerLogins() {
-  const fromEnv = process.env.EXPO_PUBLIC_MANAGER_LOGIN?.trim().toLowerCase();
-  const fromEnvEmail = process.env.EXPO_PUBLIC_MANAGER_EMAIL?.trim().toLowerCase();
-
-  return new Set(
-    [fromEnv, fromEnvEmail, "manager", "manager@giotto.local"].filter((item): item is string => !!item),
-  );
-}
-
-function getManagerPassword() {
-  return process.env.EXPO_PUBLIC_MANAGER_PASSWORD || "manager123";
-}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
@@ -73,29 +59,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
-  const signInWaiter = useCallback(async (login: string, password: string) => {
-    const payload = await loginWaiter(login.trim().toLowerCase(), password);
-    const nextWaiter = {
-      id: payload.waiter.id,
-      name: payload.waiter.name,
-    };
+  const signIn = useCallback(async (login: string, password: string) => {
+    const normalizedLogin = login.trim().toLowerCase();
+    const normalizedPassword = password;
+    const payload = await loginStaff(normalizedLogin, normalizedPassword);
 
-    setRole("waiter");
-    setWaiter(nextWaiter);
-    await persist("waiter", nextWaiter);
-  }, [persist]);
+    if (payload.session.role === "waiter" && payload.waiter) {
+      const nextWaiter = {
+        id: payload.waiter.id,
+        name: payload.waiter.name,
+      };
 
-  const signInManager = useCallback(async (login: string, password: string) => {
-    const normalized = login.trim().toLowerCase();
-    const managerLogins = getManagerLogins();
-    const managerPassword = getManagerPassword();
-
-    if (!managerLogins.has(normalized) || password !== managerPassword) {
-      throw new Error("Неверные данные менеджера");
+      setRole("waiter");
+      setWaiter(nextWaiter);
+      await persist("waiter", nextWaiter);
+      return;
     }
-
-    // Validate backend availability before opening manager panel.
-    await fetchHallData();
 
     setRole("manager");
     setWaiter(null);
@@ -120,10 +99,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loading,
     role,
     waiter,
-    signInWaiter,
-    signInManager,
+    signIn,
     signOut,
-  }), [loading, role, signInManager, signInWaiter, signOut, waiter]);
+  }), [loading, role, signIn, signOut, waiter]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
