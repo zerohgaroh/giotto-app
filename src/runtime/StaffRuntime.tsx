@@ -54,12 +54,18 @@ async function registerForPush(): Promise<PushDeviceRegistration | null> {
     Notifications = await import("expo-notifications");
   }
   const permission = await Notifications.getPermissionsAsync();
-  let finalStatus = permission.status;
-  if (finalStatus !== "granted") {
+  let granted =
+    typeof (permission as { granted?: unknown }).granted === "boolean"
+      ? Boolean((permission as { granted?: boolean }).granted)
+      : (permission as { status?: string }).status === "granted";
+  if (!granted) {
     const request = await Notifications.requestPermissionsAsync();
-    finalStatus = request.status;
+    granted =
+      typeof (request as { granted?: unknown }).granted === "boolean"
+        ? Boolean((request as { granted?: boolean }).granted)
+        : (request as { status?: string }).status === "granted";
   }
-  if (finalStatus !== "granted") return null;
+  if (!granted) return null;
   const projectId =
     Constants.easConfig?.projectId ??
     (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId;
@@ -123,7 +129,7 @@ export function StaffRuntime() {
   }, []);
 
   useEffect(() => {
-    if (!session || session.role !== "waiter") return;
+    if (!session) return;
     let cancelled = false;
     const syncPushToken = async () => {
       try {

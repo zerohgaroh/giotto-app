@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Pressable, StyleSheet, Text } from "react-native";
+import { BrandHeaderTitle } from "../components/BrandHeaderTitle";
 import { useAuth } from "../context/AuthContext";
 import { WaiterHomeScreen } from "../screens/waiter/WaiterHomeScreen";
 import { WaiterQueueScreen } from "../screens/waiter/WaiterQueueScreen";
@@ -12,6 +13,7 @@ const Tab = createBottomTabNavigator<WaiterTabParamList>();
 
 function LogoutButton() {
   const { signOut } = useAuth();
+
   return (
     <Pressable style={styles.logoutBtn} onPress={() => void signOut()}>
       <Text style={styles.logoutText}>Выйти</Text>
@@ -25,6 +27,8 @@ export function WaiterTabsNavigator() {
       screenOptions={({ route }) => ({
         headerStyle: { backgroundColor: colors.cream },
         headerShadowVisible: false,
+        headerTitle: () => <BrandHeaderTitle />,
+        headerTitleAlign: "center",
         headerRight: LogoutButton,
         tabBarActiveTintColor: colors.navy,
         tabBarInactiveTintColor: "#8A847A",
@@ -40,6 +44,7 @@ export function WaiterTabsNavigator() {
             WaiterTables: "grid",
             WaiterShift: "bar-chart",
           };
+
           return <Ionicons name={map[route.name]} size={size} color={color} />;
         },
       })}

@@ -3,6 +3,8 @@ import EventSource, { type CustomEvent, type ErrorEvent, type ExceptionEvent, ty
 import { API_BASE_URL, getAccessToken, subscribeAccessToken } from "../api/client";
 import type { RealtimeEvent } from "../types/domain";
 
+type StaffRealtimeEventName = RealtimeEvent["type"] | "ready";
+
 const EVENT_NAMES: RealtimeEvent["type"][] = [
   "waiter:called",
   "bill:requested",
@@ -29,6 +31,7 @@ const EVENT_NAMES: RealtimeEvent["type"][] = [
 
 export function useStaffRealtime(onEvent: (event: RealtimeEvent) => void) {
   const [connected, setConnected] = useState(false);
+  const [connecting, setConnecting] = useState(true);
   const [token, setToken] = useState<string | null>(() => getAccessToken());
 
   useEffect(() => subscribeAccessToken(setToken), []);
@@ -36,22 +39,33 @@ export function useStaffRealtime(onEvent: (event: RealtimeEvent) => void) {
   useEffect(() => {
     if (!token) {
       setConnected(false);
+      setConnecting(false);
       return;
     }
 
-    const source = new EventSource<RealtimeEvent["type"]>(`${API_BASE_URL}/api/staff/realtime/stream`, {
+    setConnecting(true);
+    const streamUrl = `${API_BASE_URL}/api/staff/realtime/stream?accessToken=${encodeURIComponent(token)}`;
+
+    const source = new EventSource<StaffRealtimeEventName>(streamUrl, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
-      timeout: 15_000,
-      pollingInterval: 0,
+      timeout: 0,
+      pollingInterval: 5_000,
     });
 
-    const handleOpen = () => setConnected(true);
-    const handleError = (_event: ErrorEvent | TimeoutEvent | ExceptionEvent) => setConnected(false);
+    const markConnected = () => {
+      setConnected(true);
+      setConnecting(false);
+    };
+    const handleError = (_event: ErrorEvent | TimeoutEvent | ExceptionEvent) => {
+      setConnected(false);
+      setConnecting(false);
+    };
 
-    source.addEventListener("open", handleOpen);
+    source.addEventListener("open", markConnected);
     source.addEventListener("error", handleError);
+    source.addEventListener("ready", markConnected);
 
     for (const eventName of EVENT_NAMES) {
       source.addEventListener(eventName, (event: CustomEvent<typeof eventName>) => {
@@ -66,10 +80,11 @@ export function useStaffRealtime(onEvent: (event: RealtimeEvent) => void) {
 
     return () => {
       setConnected(false);
+      setConnecting(true);
       source.removeAllEventListeners();
       source.close();
     };
   }, [onEvent, token]);
 
-  return { connected };
+  return { connected, connecting };
 }

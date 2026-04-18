@@ -65,6 +65,16 @@ export type ReviewPrompt = {
   expiresAt: number;
 };
 
+export type GuestTableLink = {
+  tableId: number;
+  accessKey: string;
+  shortPath: string;
+  tablePath: string;
+  menuPath: string;
+  waiterPath: string;
+  url: string;
+};
+
 export type MenuCategory = {
   id: string;
   labelRu: string;
@@ -113,6 +123,7 @@ export type FloorZone = {
 export type FloorTableNode = {
   tableId: number;
   label?: string;
+  zoneId?: string;
   x: number;
   y: number;
   shape: FloorTableShape;
@@ -238,6 +249,7 @@ export type WaiterTableDetailResponse = {
 export type ManagerTableSummary = HallTable & {
   activeRequestsCount: number;
   total: number;
+  guestLink: GuestTableLink;
 };
 
 export type ManagerHallResponse = {
@@ -257,6 +269,7 @@ export type ManagerTableDetail = {
   sessionId?: string;
   sessionStartedAt?: number;
   availableWaiters: WaiterProfile[];
+  guestLink: GuestTableLink;
 };
 
 export type ManagerHistoryEntry = {
@@ -288,6 +301,21 @@ export type ManagerMenuSnapshot = {
   categories: MenuCategory[];
   dishes: Dish[];
 };
+
+export type MenuImageUploadResponse = {
+  url: string;
+  width: number;
+  height: number;
+  mimeType: string;
+  sizeBytes: number;
+};
+
+export type MenuImageDraftState =
+  | { mode: "empty" }
+  | { mode: "local"; uri: string }
+  | { mode: "uploading"; uri: string }
+  | { mode: "uploaded"; uri: string; url: string; width?: number; height?: number }
+  | { mode: "error"; uri: string; errorText: string };
 
 export type ManagerLayoutSnapshot = {
   activeTables: FloorTableNode[];

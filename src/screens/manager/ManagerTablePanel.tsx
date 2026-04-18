@@ -1,9 +1,12 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -29,18 +32,21 @@ export function ManagerTablePanel({ tableId, onBack, onMutated }: Props) {
   const [errorText, setErrorText] = useState("");
   const [now, setNow] = useState(Date.now());
 
-  const pull = useCallback(async (withLoader = false) => {
-    if (withLoader) setLoading(true);
-    try {
-      const next = await fetchManagerTable(tableId);
-      setData(next);
-      setErrorText("");
-    } catch {
-      setErrorText("Не удалось загрузить стол.");
-    } finally {
-      if (withLoader) setLoading(false);
-    }
-  }, [tableId]);
+  const pull = useCallback(
+    async (withLoader = false) => {
+      if (withLoader) setLoading(true);
+      try {
+        const next = await fetchManagerTable(tableId);
+        setData(next);
+        setErrorText("");
+      } catch {
+        setErrorText("Не удалось загрузить стол.");
+      } finally {
+        if (withLoader) setLoading(false);
+      }
+    },
+    [tableId],
+  );
 
   useEffect(() => {
     void pull(true);
@@ -57,29 +63,32 @@ export function ManagerTablePanel({ tableId, onBack, onMutated }: Props) {
     [onMutated, pull, tableId],
   );
 
-  const { connected } = useStaffRealtime(handleRealtime);
+  const { connected, connecting } = useStaffRealtime(handleRealtime);
 
-  const onRefresh = async () => {
+  const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await pull(false);
     setRefreshing(false);
-  };
+  }, [pull]);
 
-  const onReassign = async (waiterId?: string) => {
-    setSavingAction(waiterId ?? "unassigned");
-    try {
-      const next = await reassignManagerTable(tableId, waiterId);
-      setData(next);
-      setErrorText("");
-      onMutated?.();
-    } catch {
-      setErrorText("Не удалось изменить назначение.");
-    } finally {
-      setSavingAction(null);
-    }
-  };
+  const onReassign = useCallback(
+    async (waiterId?: string) => {
+      setSavingAction(waiterId ?? "unassigned");
+      try {
+        const next = await reassignManagerTable(tableId, waiterId);
+        setData(next);
+        setErrorText("");
+        onMutated?.();
+      } catch {
+        setErrorText("Не удалось изменить назначение.");
+      } finally {
+        setSavingAction(null);
+      }
+    },
+    [onMutated, tableId],
+  );
 
-  const onCloseTable = async () => {
+  const onCloseTable = useCallback(async () => {
     setSavingAction("close");
     try {
       const next = await closeManagerTable(tableId);
@@ -91,7 +100,28 @@ export function ManagerTablePanel({ tableId, onBack, onMutated }: Props) {
     } finally {
       setSavingAction(null);
     }
-  };
+  }, [onMutated, tableId]);
+
+  const openGuestLink = useCallback(async () => {
+    if (!data?.guestLink.url) return;
+    try {
+      await Linking.openURL(data.guestLink.url);
+    } catch {
+      setErrorText("Не удалось открыть ссылку.");
+    }
+  }, [data?.guestLink.url]);
+
+  const shareGuestLink = useCallback(async () => {
+    if (!data?.guestLink.url) return;
+    try {
+      await Share.share({
+        message: data.guestLink.url,
+        url: data.guestLink.url,
+      });
+    } catch {
+      setErrorText("Не удалось поделиться ссылкой.");
+    }
+  }, [data?.guestLink.url]);
 
   const total = useMemo(
     () => (data?.billLines || []).reduce((sum, line) => sum + line.qty * line.price, 0),
@@ -110,11 +140,13 @@ export function ManagerTablePanel({ tableId, onBack, onMutated }: Props) {
     <ScrollView
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      showsVerticalScrollIndicator={false}
     >
       <View style={styles.topRow}>
         {onBack ? (
           <Pressable style={styles.backButton} onPress={onBack}>
-            <Text style={styles.backButtonText}>Назад</Text>
+            <Ionicons name="close" size={18} color={colors.navy} />
+            <Text style={styles.backButtonText}>Закрыть</Text>
           </Pressable>
         ) : (
           <View />
@@ -124,12 +156,36 @@ export function ManagerTablePanel({ tableId, onBack, onMutated }: Props) {
 
       <Text style={styles.title}>Стол {tableId}</Text>
       <Text style={styles.subtitle}>
-        {data.table.hasActiveSession ? `За столом ${formatDurationFrom(data.table.guestStartedAt, now)}` : "Нет активной сессии"}
+        {data.table.hasActiveSession ? `За столом ${formatDurationFrom(data.table.guestStartedAt, now)}` : "Сессия не активна"}
       </Text>
 
-      {!connected ? <View style={styles.banner}><Text style={styles.bannerText}>Нет связи.</Text></View> : null}
+      {!connected && !connecting ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>Нет live-обновлений. Потяните экран вниз, чтобы обновить данные.</Text>
+        </View>
+      ) : null}
 
       {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
+
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Ссылка стола</Text>
+        <Text style={styles.metaText}>Эта ссылка работает постоянно для этого стола.</Text>
+        <View style={styles.linkBox}>
+          <Text style={styles.linkText} selectable>
+            {data.guestLink.url}
+          </Text>
+        </View>
+        <View style={styles.linkActions}>
+          <Pressable style={styles.secondaryWideButton} onPress={() => void openGuestLink()}>
+            <Ionicons name="open-outline" size={18} color={colors.navy} />
+            <Text style={styles.secondaryWideButtonText}>Открыть</Text>
+          </Pressable>
+          <Pressable style={styles.secondaryWideButton} onPress={() => void shareGuestLink()}>
+            <Ionicons name="share-social-outline" size={18} color={colors.navy} />
+            <Text style={styles.secondaryWideButtonText}>Поделиться</Text>
+          </Pressable>
+        </View>
+      </View>
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Назначение</Text>
@@ -143,26 +199,33 @@ export function ManagerTablePanel({ tableId, onBack, onMutated }: Props) {
           <Pressable
             style={[
               styles.waiterChip,
-              !data.assignedWaiterId && styles.waiterChipActive,
-              savingAction === "unassigned" && styles.waiterChipDisabled,
+              !data.assignedWaiterId ? styles.waiterChipActive : null,
+              savingAction === "unassigned" ? styles.waiterChipDisabled : null,
             ]}
             onPress={() => void onReassign(undefined)}
             disabled={savingAction !== null}
           >
-            <Text style={[styles.waiterChipText, !data.assignedWaiterId && styles.waiterChipTextActive]}>Снять</Text>
+            <Text style={[styles.waiterChipText, !data.assignedWaiterId ? styles.waiterChipTextActive : null]}>
+              Снять
+            </Text>
           </Pressable>
           {data.availableWaiters.map((waiter) => (
             <Pressable
               key={waiter.id}
               style={[
                 styles.waiterChip,
-                data.assignedWaiterId === waiter.id && styles.waiterChipActive,
-                savingAction === waiter.id && styles.waiterChipDisabled,
+                data.assignedWaiterId === waiter.id ? styles.waiterChipActive : null,
+                savingAction === waiter.id ? styles.waiterChipDisabled : null,
               ]}
               onPress={() => void onReassign(waiter.id)}
               disabled={savingAction !== null}
             >
-              <Text style={[styles.waiterChipText, data.assignedWaiterId === waiter.id && styles.waiterChipTextActive]}>
+              <Text
+                style={[
+                  styles.waiterChipText,
+                  data.assignedWaiterId === waiter.id ? styles.waiterChipTextActive : null,
+                ]}
+              >
                 {waiter.name}
               </Text>
             </Pressable>
@@ -173,11 +236,13 @@ export function ManagerTablePanel({ tableId, onBack, onMutated }: Props) {
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Запросы</Text>
         {data.requests.length === 0 ? (
-          <Text style={styles.emptyText}>Нет активных запросов.</Text>
+          <Text style={styles.emptyText}>Активных запросов нет.</Text>
         ) : (
           data.requests.map((request) => (
             <View key={request.id} style={styles.rowCard}>
-              <Text style={styles.rowTitle}>{request.type === "bill" ? "Запросили счёт" : "Вызвали официанта"}</Text>
+              <Text style={styles.rowTitle}>
+                {request.type === "bill" ? "Запросили счёт" : "Вызвали официанта"}
+              </Text>
               <Text style={styles.rowMeta}>{request.reason}</Text>
               <Text style={styles.rowMeta}>{formatTime(request.createdAt)}</Text>
             </View>
@@ -192,7 +257,7 @@ export function ManagerTablePanel({ tableId, onBack, onMutated }: Props) {
         ) : (
           data.billLines.map((line) => (
             <View key={line.id} style={styles.billRow}>
-              <View style={{ flex: 1 }}>
+              <View style={styles.billCopy}>
                 <Text style={styles.rowTitle}>
                   {line.title} x {line.qty}
                 </Text>
@@ -213,11 +278,16 @@ export function ManagerTablePanel({ tableId, onBack, onMutated }: Props) {
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Отзыв</Text>
-        <Text style={styles.metaText}>{data.reviewPrompt ? `До ${formatTime(data.reviewPrompt.expiresAt)}` : "Нет активного окна"}</Text>
+        <Text style={styles.metaText}>
+          {data.reviewPrompt ? `До ${formatTime(data.reviewPrompt.expiresAt)}` : "Окно отзыва не активно"}
+        </Text>
       </View>
 
       <Pressable
-        style={[styles.closeButton, (!data.table.hasActiveSession || savingAction === "close") && styles.closeButtonDisabled]}
+        style={[
+          styles.closeButton,
+          !data.table.hasActiveSession || savingAction === "close" ? styles.closeButtonDisabled : null,
+        ]}
         onPress={() => void onCloseTable()}
         disabled={!data.table.hasActiveSession || savingAction !== null}
       >
@@ -245,6 +315,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   backButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: colors.line,
@@ -254,11 +327,11 @@ const styles = StyleSheet.create({
   },
   backButtonText: {
     color: colors.navy,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   title: {
     fontSize: 28,
-    fontWeight: "700",
+    fontWeight: "800",
     color: colors.navyDeep,
   },
   subtitle: {
@@ -266,36 +339,76 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   banner: {
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "#E8D6B5",
     backgroundColor: "#FFF8EC",
-    padding: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
   },
   bannerText: {
     color: "#8A6A33",
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "600",
   },
   errorText: {
     color: "#B42318",
   },
   card: {
-    borderRadius: 14,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor: "#D9D2C6",
     backgroundColor: colors.white,
-    padding: 12,
-    gap: 8,
+    padding: 14,
+    gap: 10,
+    shadowColor: "#0A1F4A",
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
   },
   cardTitle: {
     color: colors.navyDeep,
-    fontWeight: "700",
-    fontSize: 17,
+    fontWeight: "800",
+    fontSize: 18,
   },
   metaText: {
     color: colors.muted,
     fontSize: 13,
+    lineHeight: 18,
+  },
+  linkBox: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: "#FBF8F2",
+    padding: 12,
+  },
+  linkText: {
+    color: colors.navyDeep,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  linkActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  secondaryWideButton: {
+    minHeight: 44,
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.white,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  secondaryWideButtonText: {
+    color: colors.navy,
+    fontWeight: "700",
   },
   chips: {
     flexDirection: "row",
@@ -328,9 +441,9 @@ const styles = StyleSheet.create({
     color: colors.muted,
   },
   rowCard: {
-    borderRadius: 12,
-    backgroundColor: colors.cream,
-    padding: 10,
+    borderRadius: 14,
+    backgroundColor: "#FBF8F2",
+    padding: 12,
     gap: 4,
   },
   rowTitle: {
@@ -344,6 +457,9 @@ const styles = StyleSheet.create({
   billRow: {
     flexDirection: "row",
     gap: 8,
+  },
+  billCopy: {
+    flex: 1,
   },
   billAmount: {
     color: colors.navyDeep,
@@ -364,7 +480,7 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     minHeight: 48,
-    borderRadius: 12,
+    borderRadius: 16,
     backgroundColor: "#B42318",
     alignItems: "center",
     justifyContent: "center",

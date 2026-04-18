@@ -334,12 +334,17 @@ const styles = StyleSheet.create({
     color: "#B42318",
   },
   card: {
-    borderRadius: 14,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor: "#D9D2C6",
     backgroundColor: colors.white,
-    padding: 12,
-    gap: 8,
+    padding: 14,
+    gap: 10,
+    shadowColor: "#0A1F4A",
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
   },
   rowBetween: {
     flexDirection: "row",
@@ -348,12 +353,13 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: colors.navyDeep,
-    fontWeight: "700",
-    fontSize: 17,
+    fontWeight: "800",
+    fontSize: 18,
   },
   cardMeta: {
     color: colors.muted,
     fontSize: 13,
+    lineHeight: 18,
   },
   statePill: {
     borderRadius: 999,
@@ -384,7 +390,7 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     minHeight: 42,
-    borderRadius: 10,
+    borderRadius: 14,
     backgroundColor: colors.navy,
     alignItems: "center",
     justifyContent: "center",
@@ -396,7 +402,7 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     minHeight: 42,
-    borderRadius: 10,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.white,

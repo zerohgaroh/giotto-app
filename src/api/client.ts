@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import type { ImagePickerAsset } from "expo-image-picker";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import { getAccessToken, setAccessToken, subscribeAccessToken } from "./accessTokenStore";
@@ -10,6 +11,7 @@ import type {
   ManagerHistoryPage,
   ManagerLayoutSnapshot,
   ManagerMenuSnapshot,
+  MenuImageUploadResponse,
   ManagerTableDetail,
   ManagerWaiterDetail,
   ManagerWaiterSummary,
@@ -28,6 +30,7 @@ export { getAccessToken, setAccessToken, subscribeAccessToken } from "./accessTo
 
 const DEFAULT_PORT = "3000";
 const REFRESH_TOKEN_KEY = "giotto.mobile.refreshToken.v2";
+const REQUEST_TIMEOUT_MS = 15000;
 
 let refreshInFlight: Promise<StaffLoginResponse | null> | null = null;
 
@@ -47,6 +50,26 @@ function extractExpoHost(): string | null {
   return raw.split(":")[0] || null;
 }
 
+function isPrivateHost(host: string) {
+  if (host === "localhost" || host === "127.0.0.1") return true;
+  if (/^10\./.test(host)) return true;
+  if (/^192\.168\./.test(host)) return true;
+
+  const octets = host.split(".");
+  if (octets.length === 4 && octets.every((part) => /^\d+$/.test(part))) {
+    const second = Number(octets[1]);
+    if (Number(octets[0]) === 172 && second >= 16 && second <= 31) return true;
+  }
+
+  return false;
+}
+
+function replaceUrlHost(rawUrl: string, nextHost: string) {
+  const url = new URL(rawUrl);
+  url.hostname = nextHost;
+  return url.toString().replace(/\/$/, "");
+}
+
 function resolveBaseUrl() {
   const envValue = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
   const expoHost = extractExpoHost();
@@ -57,6 +80,17 @@ function resolveBaseUrl() {
   }
 
   const normalized = envValue.replace(/\/$/, "");
+
+  if (expoHost && expoHost !== "localhost" && expoHost !== "127.0.0.1") {
+    try {
+      const currentHost = new URL(normalized).hostname;
+      if (currentHost !== expoHost && isPrivateHost(currentHost) && isPrivateHost(expoHost)) {
+        return replaceUrlHost(normalized, expoHost);
+      }
+    } catch {
+      // ignore malformed env and fall through to standard handling
+    }
+  }
 
   if (expoHost && /localhost|127\.0\.0\.1/.test(normalized)) {
     const hasExplicitPort = /:\d+$/.test(normalized);
@@ -135,19 +169,25 @@ export async function clearStoredAuth() {
 
 async function rawRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { query, headers, auth = true, ...rest } = options;
+  const isFormData = typeof FormData !== "undefined" && rest.body instanceof FormData;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   let response: Response;
   try {
     response = await fetch(buildUrl(path, query), {
       ...rest,
+      signal: controller.signal,
       headers: {
-        "Content-Type": "application/json",
+        ...(isFormData ? {} : { "Content-Type": "application/json" }),
         ...(auth && getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}),
         ...(headers || {}),
       },
     });
   } catch {
     throw new ApiError(`Network request failed. Check API reachability at ${API_BASE_URL}`, 0, "network");
+  } finally {
+    clearTimeout(timeout);
   }
 
   const text = await response.text();
@@ -472,6 +512,39 @@ export async function createManagerDish(payload: {
   });
 }
 
+function inferAssetType(asset: ImagePickerAsset) {
+  if (asset.mimeType?.trim()) return asset.mimeType.trim();
+  const lower = asset.fileName?.toLowerCase() ?? asset.uri.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".webp")) return "image/webp";
+  return "image/jpeg";
+}
+
+function inferAssetName(asset: ImagePickerAsset) {
+  if (asset.fileName?.trim()) return asset.fileName.trim();
+  const ext =
+    inferAssetType(asset) === "image/png"
+      ? "png"
+      : inferAssetType(asset) === "image/webp"
+        ? "webp"
+        : "jpg";
+  return `menu-image-${Date.now()}.${ext}`;
+}
+
+export async function uploadManagerMenuImage(asset: ImagePickerAsset) {
+  const formData = new FormData();
+  formData.append("file", {
+    uri: asset.uri,
+    name: inferAssetName(asset),
+    type: inferAssetType(asset),
+  } as never);
+
+  return request<MenuImageUploadResponse>("/api/staff/manager/menu/images", {
+    method: "POST",
+    body: formData,
+  });
+}
+
 export async function updateManagerDish(
   dishId: string,
   payload: {
@@ -525,6 +598,7 @@ export async function updateManagerLayout(payload: {
   tables: Array<{
     tableId: number;
     label?: string;
+    zoneId?: string;
     x: number;
     y: number;
     shape: "square" | "round" | "rect";
@@ -540,6 +614,7 @@ export async function updateManagerLayout(payload: {
 
 export async function createManagerTable(payload?: {
   label?: string;
+  zoneId?: string;
   shape?: "square" | "round" | "rect";
   sizePreset?: FloorTableSizePreset;
   x?: number;

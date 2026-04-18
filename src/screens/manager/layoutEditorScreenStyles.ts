@@ -15,6 +15,7 @@ export const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+    gap: 12,
   },
   header: {
     gap: 10,
@@ -269,6 +270,22 @@ export const styles = StyleSheet.create({
     shadowOpacity: 0.16,
     shadowRadius: 14,
     elevation: 10,
+  },
+  bottomSheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+  },
+  bottomSheetTitle: {
+    color: colors.navyDeep,
+    fontSize: 18,
+    fontWeight: "700",
   },
   meta: {
     color: colors.muted,

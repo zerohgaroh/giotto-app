@@ -7,6 +7,7 @@ import {
   Pressable,
   RefreshControl,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -24,7 +25,7 @@ import { ManagerTablePanel } from "./ManagerTablePanel";
 const FILTERS: Array<{ id: "all" | ServiceTableStatus; label: string }> = [
   { id: "all", label: "Все" },
   { id: "waiting", label: "Ждут" },
-  { id: "bill", label: "Счёт" },
+  { id: "bill", label: "Счет" },
   { id: "ordered", label: "Заказ" },
   { id: "occupied", label: "Заняты" },
   { id: "free", label: "Свободны" },
@@ -39,17 +40,17 @@ export function ManagerHallScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorText, setErrorText] = useState("");
-  const [now, setNow] = useState(Date.now());
   const [filter, setFilter] = useState<"all" | ServiceTableStatus>("all");
   const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
+  const [now, setNow] = useState(Date.now());
 
   const pull = useCallback(async (withLoader = false) => {
     if (withLoader) setLoading(true);
     try {
       const next = await fetchManagerHall();
       setData(next);
-      setErrorText("");
       setSelectedTableId((current) => current ?? next.tables[0]?.tableId ?? null);
+      setErrorText("");
     } catch {
       setErrorText("Не удалось загрузить зал.");
     } finally {
@@ -63,22 +64,22 @@ export function ManagerHallScreen() {
     return () => clearInterval(timer);
   }, [pull]);
 
-  const { connected } = useStaffRealtime(
+  const { connected, connecting } = useStaffRealtime(
     useCallback(() => {
       void pull(false);
     }, [pull]),
   );
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await pull(false);
+    setRefreshing(false);
+  }, [pull]);
+
   const filteredTables = useMemo(() => {
     const tables = data?.tables ?? [];
     return tables.filter((table) => filter === "all" || table.status === filter);
   }, [data?.tables, filter]);
-
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await pull(false);
-    setRefreshing(false);
-  };
 
   const kpis = useMemo(() => {
     const tables = data?.tables ?? [];
@@ -116,19 +117,25 @@ export function ManagerHallScreen() {
         </View>
       </View>
 
-      <View style={styles.filterRow}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
         {FILTERS.map((item) => (
           <Pressable
             key={item.id}
-            style={[styles.filterChip, filter === item.id && styles.filterChipActive]}
+            style={[styles.filterChip, filter === item.id ? styles.filterChipActive : null]}
             onPress={() => setFilter(item.id)}
           >
-            <Text style={[styles.filterChipText, filter === item.id && styles.filterChipTextActive]}>{item.label}</Text>
+            <Text style={[styles.filterChipText, filter === item.id ? styles.filterChipTextActive : null]}>
+              {item.label}
+            </Text>
           </Pressable>
         ))}
-      </View>
+      </ScrollView>
 
-      {!connected ? <View style={styles.banner}><Text style={styles.bannerText}>Нет связи.</Text></View> : null}
+      {!connected && !connecting ? (
+        <View style={styles.banner}>
+          <Text style={styles.bannerText}>Нет live-обновлений. Потяни экран вниз, чтобы обновить данные.</Text>
+        </View>
+      ) : null}
 
       {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
 
@@ -144,7 +151,11 @@ export function ManagerHallScreen() {
               const selected = selectedTableId === item.tableId;
               return (
                 <Pressable
-                  style={[styles.card, selected && styles.cardSelected, item.activeRequestsCount > 0 && styles.cardAlert]}
+                  style={[
+                    styles.card,
+                    selected ? styles.cardSelected : null,
+                    item.activeRequestsCount > 0 ? styles.cardAlert : null,
+                  ]}
                   onPress={() => setSelectedTableId(item.tableId)}
                 >
                   <View style={styles.cardHead}>
@@ -160,6 +171,7 @@ export function ManagerHallScreen() {
               );
             }}
           />
+
           <View style={styles.detailPane}>
             {selectedTableId ? (
               <ManagerTablePanel tableId={selectedTableId} onMutated={() => void pull(false)} />
@@ -180,7 +192,7 @@ export function ManagerHallScreen() {
             const waiter = data?.waiters.find((candidate) => candidate.id === item.assignedWaiterId);
             return (
               <Pressable
-                style={[styles.card, item.activeRequestsCount > 0 && styles.cardAlert]}
+                style={[styles.card, item.activeRequestsCount > 0 ? styles.cardAlert : null]}
                 onPress={() => navigation.navigate("ManagerTable", { tableId: item.tableId })}
               >
                 <View style={styles.cardHead}>
@@ -216,47 +228,56 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 30,
-    fontWeight: "700",
+    fontWeight: "800",
     color: colors.navyDeep,
   },
   kpiRow: {
     flexDirection: "row",
-    gap: 8,
+    gap: 10,
     paddingHorizontal: 16,
     marginTop: 14,
   },
   kpiCard: {
     flex: 1,
-    borderRadius: 14,
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor: "#D9D2C6",
     backgroundColor: colors.white,
-    padding: 12,
+    padding: 16,
+    shadowColor: "#0A1F4A",
+    shadowOpacity: 0.05,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
   },
   kpiLabel: {
     color: colors.muted,
-    fontSize: 12,
+    fontSize: 13,
   },
   kpiValue: {
-    marginTop: 6,
+    marginTop: 8,
     color: colors.navyDeep,
-    fontSize: 24,
-    fontWeight: "700",
+    fontSize: 26,
+    fontWeight: "800",
   },
   filterRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
     gap: 8,
     paddingHorizontal: 16,
-    marginTop: 12,
+    paddingTop: 14,
+    paddingBottom: 4,
+    alignItems: "center",
   },
   filterChip: {
+    minWidth: 88,
+    minHeight: 42,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.white,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
   },
   filterChipActive: {
     borderColor: colors.navy,
@@ -264,8 +285,8 @@ const styles = StyleSheet.create({
   },
   filterChipText: {
     color: colors.navy,
-    fontWeight: "600",
-    fontSize: 12,
+    fontWeight: "700",
+    fontSize: 14,
   },
   filterChipTextActive: {
     color: colors.white,
@@ -273,16 +294,18 @@ const styles = StyleSheet.create({
   banner: {
     marginTop: 10,
     marginHorizontal: 16,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "#E8D6B5",
     backgroundColor: "#FFF8EC",
-    padding: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
   },
   bannerText: {
     color: "#8A6A33",
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "600",
   },
   errorText: {
     marginTop: 8,
@@ -300,33 +323,40 @@ const styles = StyleSheet.create({
   },
   card: {
     flex: 1,
-    borderRadius: 14,
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor: "#D9D2C6",
     backgroundColor: colors.white,
-    padding: 12,
+    padding: 14,
     marginBottom: 8,
-    minHeight: 132,
+    minHeight: 144,
+    shadowColor: "#0A1F4A",
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
   },
   cardSelected: {
     borderColor: colors.navy,
+    backgroundColor: "#F9FBFF",
   },
   cardAlert: {
-    borderWidth: 2,
-    borderColor: colors.gold,
+    borderColor: "#D2B177",
+    backgroundColor: "#FFFDF8",
   },
   cardHead: {
-    gap: 8,
+    gap: 10,
   },
   cardTitle: {
-    fontSize: 16,
-    fontWeight: "700",
+    fontSize: 18,
+    fontWeight: "800",
     color: colors.navyDeep,
   },
   cardMeta: {
-    marginTop: 8,
+    marginTop: 6,
     color: colors.muted,
-    fontSize: 12,
+    fontSize: 14,
+    lineHeight: 19,
   },
   tabletLayout: {
     flex: 1,
@@ -338,9 +368,9 @@ const styles = StyleSheet.create({
   },
   detailPane: {
     flex: 1.1,
-    borderRadius: 16,
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: colors.line,
+    borderColor: "#D9D2C6",
     backgroundColor: colors.white,
     overflow: "hidden",
   },
