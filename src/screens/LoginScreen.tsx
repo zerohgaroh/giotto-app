@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { API_BASE_URL, ApiError } from "../api/client";
+import { ApiError } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { colors } from "../theme/colors";
 
@@ -23,14 +23,10 @@ export function LoginScreen() {
   const [errorText, setErrorText] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const helperText = useMemo(() => {
-    return `Сервер: ${API_BASE_URL}`;
-  }, []);
-
   const submit = async () => {
     if (loading) return;
     if (!login.trim() || !password) {
-      setErrorText("Введите логин и пароль");
+      setErrorText("Введите логин и пароль.");
       return;
     }
 
@@ -41,11 +37,11 @@ export function LoginScreen() {
       await signIn(login, password);
     } catch (error) {
       if (error instanceof ApiError && error.code === "network") {
-        setErrorText(
-          "Не удалось подключиться к серверу. Проверьте, что сервер сайта запущен и доступен в одной сети.",
-        );
+        setErrorText("Нет соединения.");
+      } else if (error instanceof ApiError && error.status === 401) {
+        setErrorText("Неверный логин или пароль.");
       } else {
-        setErrorText(error instanceof Error ? error.message : "Не удалось выполнить вход");
+        setErrorText("Не удалось войти.");
       }
     } finally {
       setLoading(false);
@@ -61,11 +57,8 @@ export function LoginScreen() {
             <Image source={logo} style={styles.logo} />
           </View>
 
-          <Text style={styles.brand}>Giotto Staff</Text>
-          <Text style={styles.title}>Единый вход</Text>
-          <Text style={styles.subtitle}>
-            Официант и менеджер входят через одну форму. Учётные записи проверяются через сервер сайта.
-          </Text>
+          <Text style={styles.brand}>Giotto</Text>
+          <Text style={styles.title}>Вход</Text>
 
           <View style={styles.fieldsWrap}>
             <Text style={styles.fieldLabel}>Логин</Text>
@@ -73,17 +66,18 @@ export function LoginScreen() {
               value={login}
               onChangeText={setLogin}
               autoCapitalize="none"
-              placeholder="marco или manager"
+              autoCorrect={false}
+              placeholder="Логин"
               style={styles.input}
               placeholderTextColor="#8A847A"
             />
 
-            <Text style={[styles.fieldLabel, { marginTop: 10 }]}>Пароль</Text>
+            <Text style={[styles.fieldLabel, styles.topGap]}>Пароль</Text>
             <TextInput
               value={password}
               onChangeText={setPassword}
               secureTextEntry
-              placeholder="••••••••"
+              placeholder="Пароль"
               style={styles.input}
               placeholderTextColor="#8A847A"
             />
@@ -91,11 +85,9 @@ export function LoginScreen() {
 
           {errorText ? <Text style={styles.error}>{errorText}</Text> : null}
 
-          <Pressable disabled={loading} style={styles.submitButton} onPress={submit}>
+          <Pressable disabled={loading} style={styles.submitButton} onPress={() => void submit()}>
             {loading ? <ActivityIndicator color={colors.white} /> : <Text style={styles.submitText}>Войти</Text>}
           </Pressable>
-
-          <Text style={styles.helper}>{helperText}</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -172,22 +164,17 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: colors.navyDeep,
   },
-  subtitle: {
-    marginTop: 8,
-    textAlign: "center",
-    color: colors.muted,
-    fontSize: 13,
-    lineHeight: 19,
-    paddingHorizontal: 6,
-  },
   fieldsWrap: {
-    marginTop: 16,
+    marginTop: 18,
   },
   fieldLabel: {
     color: colors.text,
     fontSize: 13,
     fontWeight: "600",
     marginBottom: 6,
+  },
+  topGap: {
+    marginTop: 10,
   },
   input: {
     backgroundColor: "#FFFCF7",
@@ -216,11 +203,5 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontWeight: "700",
     fontSize: 15,
-  },
-  helper: {
-    marginTop: 10,
-    color: colors.muted,
-    fontSize: 11,
-    textAlign: "center",
   },
 });

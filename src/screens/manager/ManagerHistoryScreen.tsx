@@ -1,0 +1,243 @@
+import { useCallback, useEffect, useState } from "react";
+import { Pressable, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import type { NavigationProp } from "@react-navigation/native";
+import { fetchManagerHistory } from "../../api/client";
+import type { ManagerStackParamList } from "../../navigation/types";
+import { useStaffRealtime } from "../../realtime/useStaffRealtime";
+import { colors } from "../../theme/colors";
+import { formatTime } from "../../theme/format";
+import type { ManagerHistoryEntry, ManagerHistoryPage } from "../../types/domain";
+
+const FILTERS = [
+  { id: "all", label: "Все" },
+  { id: "waiter:called", label: "Вызов" },
+  { id: "bill:requested", label: "Счёт" },
+  { id: "waiter:acknowledged", label: "Принято" },
+  { id: "waiter:done", label: "Готово" },
+  { id: "table:assignment_changed", label: "Назначение" },
+  { id: "table:status_changed", label: "Статус" },
+];
+
+function eventLabel(item: ManagerHistoryEntry) {
+  switch (item.type) {
+    case "waiter:called":
+      return "Вызвали официанта";
+    case "bill:requested":
+      return "Запросили счёт";
+    case "waiter:acknowledged":
+      return "Запрос принят";
+    case "waiter:done":
+      return "Обслуживание завершено";
+    case "table:assignment_changed":
+      return "Сменили официанта";
+    case "table:status_changed":
+      return "Изменился статус";
+    case "task:created":
+      return "Создали задачу";
+    case "task:updated":
+      return "Обновили задачу";
+    case "task:completed":
+      return "Задача закрыта";
+    default:
+      return item.type;
+  }
+}
+
+export function ManagerHistoryScreen() {
+  const navigation = useNavigation<NavigationProp<ManagerStackParamList>>();
+  const [data, setData] = useState<ManagerHistoryPage | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [filter, setFilter] = useState("all");
+  const [errorText, setErrorText] = useState("");
+
+  const pull = useCallback(async (cursor?: string) => {
+    const next = await fetchManagerHistory({
+      type: filter === "all" ? undefined : filter,
+      cursor,
+      limit: 25,
+    });
+    setData((current) => (cursor && current ? { items: [...current.items, ...next.items], nextCursor: next.nextCursor } : next));
+  }, [filter]);
+
+  useEffect(() => {
+    setLoading(true);
+    void (async () => {
+      try {
+        await pull();
+        setErrorText("");
+      } catch {
+        setErrorText("Не удалось загрузить историю.");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [pull]);
+
+  useStaffRealtime(
+    useCallback(() => {
+      void pull();
+    }, [pull]),
+  );
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await pull();
+      setErrorText("");
+    } catch {
+      setErrorText("Не удалось обновить историю.");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const onLoadMore = async () => {
+    if (!data?.nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      await pull(data.nextCursor);
+      setErrorText("");
+    } catch {
+      setErrorText("Не удалось загрузить ещё.");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const renderItem = (item: ManagerHistoryEntry) => (
+    <Pressable
+      key={item.id}
+      style={styles.card}
+      onPress={() => {
+        if (item.tableId) {
+          navigation.navigate("ManagerTable", { tableId: item.tableId });
+        }
+      }}
+    >
+      <Text style={styles.cardTitle}>{eventLabel(item)}</Text>
+      <Text style={styles.cardMeta}>{item.tableId ? `Стол ${item.tableId}` : "Общее"}</Text>
+      <Text style={styles.cardMeta}>{formatTime(item.ts)}</Text>
+    </Pressable>
+  );
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.header}>
+        <Text style={styles.title}>История</Text>
+      </View>
+
+      <View style={styles.filterRow}>
+        {FILTERS.map((item) => (
+          <Pressable
+            key={item.id}
+            style={[styles.filterChip, filter === item.id && styles.filterChipActive]}
+            onPress={() => setFilter(item.id)}
+          >
+            <Text style={[styles.filterText, filter === item.id && styles.filterTextActive]}>{item.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
+
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        {loading ? <Text style={styles.meta}>Загрузка...</Text> : null}
+        {data?.items.map(renderItem)}
+        {data?.nextCursor ? (
+          <Pressable style={styles.moreButton} onPress={() => void onLoadMore()} disabled={loadingMore}>
+            <Text style={styles.moreButtonText}>{loadingMore ? "..." : "Ещё"}</Text>
+          </Pressable>
+        ) : null}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: colors.cream,
+  },
+  header: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+  },
+  title: {
+    fontSize: 30,
+    fontWeight: "700",
+    color: colors.navyDeep,
+  },
+  filterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingHorizontal: 16,
+    marginTop: 12,
+  },
+  filterChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.white,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  filterChipActive: {
+    borderColor: colors.navy,
+    backgroundColor: colors.navy,
+  },
+  filterText: {
+    color: colors.navy,
+    fontWeight: "600",
+    fontSize: 12,
+  },
+  filterTextActive: {
+    color: colors.white,
+  },
+  errorText: {
+    marginTop: 10,
+    marginHorizontal: 16,
+    color: "#B42318",
+  },
+  content: {
+    padding: 16,
+    gap: 10,
+  },
+  card: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.white,
+    padding: 12,
+    gap: 6,
+  },
+  cardTitle: {
+    color: colors.navyDeep,
+    fontWeight: "700",
+  },
+  cardMeta: {
+    color: colors.muted,
+    fontSize: 12,
+  },
+  meta: {
+    color: colors.muted,
+  },
+  moreButton: {
+    minHeight: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.navy,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  moreButtonText: {
+    color: colors.navy,
+    fontWeight: "700",
+  },
+});

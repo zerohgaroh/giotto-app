@@ -1,5 +1,6 @@
-import { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useCallback, useEffect, useState } from "react";
+import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -11,14 +12,15 @@ import {
   View,
 } from "react-native";
 import { fetchWaiterTables } from "../../api/client";
+import type { WaiterStackParamList, WaiterTabParamList } from "../../navigation/types";
 import { StatusBadge } from "../../components/StatusBadge";
 import { useAuth } from "../../context/AuthContext";
+import { useWaiterRealtime } from "../../realtime/useWaiterRealtime";
 import { colors } from "../../theme/colors";
 import { formatDurationFrom } from "../../theme/format";
 import type { WaiterTablesResponse } from "../../types/domain";
-import type { WaiterStackParamList } from "../../navigation/types";
 
-type Props = NativeStackScreenProps<WaiterStackParamList, "WaiterHome">;
+type Props = BottomTabScreenProps<WaiterTabParamList, "WaiterTables">;
 
 export function WaiterHomeScreen({ navigation }: Props) {
   const { waiter, signOut } = useAuth();
@@ -34,23 +36,24 @@ export function WaiterHomeScreen({ navigation }: Props) {
       const next = await fetchWaiterTables();
       setData(next);
       setErrorText("");
-    } catch (error) {
-      setErrorText(error instanceof Error ? error.message : "Не удалось загрузить столы");
+    } catch {
+      setErrorText("Не удалось загрузить столы.");
     } finally {
       if (withLoader) setLoading(false);
     }
   }, []);
 
+  const handleRealtimeEvent = useCallback(() => {
+    void pull(false);
+  }, [pull]);
+
+  const { connected } = useWaiterRealtime(handleRealtimeEvent);
+
   useEffect(() => {
     void pull(true);
-
-    const poll = setInterval(() => {
-      void pull(false);
-    }, 3000);
     const timer = setInterval(() => setNow(Date.now()), 1000);
 
     return () => {
-      clearInterval(poll);
       clearInterval(timer);
     };
   }, [pull]);
@@ -61,12 +64,17 @@ export function WaiterHomeScreen({ navigation }: Props) {
     setRefreshing(false);
   };
 
+  const activeCalls = useMemo(
+    () => data?.tables.filter((table) => table.activeRequest).length ?? 0,
+    [data?.tables],
+  );
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.label}>Giotto Waiter</Text>
-          <Text style={styles.title}>{data?.waiter.name || waiter?.name || "Официант"}</Text>
+          <Text style={styles.label}>Официант</Text>
+          <Text style={styles.title}>{data?.waiter.name || waiter?.name || "Сотрудник"}</Text>
         </View>
         <Pressable onPress={() => void signOut()} style={styles.logoutButton}>
           <Text style={styles.logoutText}>Выйти</Text>
@@ -76,9 +84,7 @@ export function WaiterHomeScreen({ navigation }: Props) {
       <View style={styles.subHeader}>
         <Text style={styles.sectionTitle}>Мои столы</Text>
         <View style={styles.callsCounter}>
-          <Text style={styles.callsCounterText}>
-            Вызовы: {data?.tables.filter((t) => !!t.activeRequest).length || 0}
-          </Text>
+          <Text style={styles.callsCounterText}>Вызовы: {activeCalls}</Text>
         </View>
       </View>
 
@@ -94,27 +100,37 @@ export function WaiterHomeScreen({ navigation }: Props) {
           columnWrapperStyle={styles.row}
           contentContainerStyle={styles.listContent}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          ListEmptyComponent={<Text style={styles.empty}>Нет назначенных столов</Text>}
+          ListEmptyComponent={<Text style={styles.empty}>Нет назначенных столов.</Text>}
           ListHeaderComponent={
-            errorText ? <Text style={styles.errorText}>{errorText}</Text> : <View style={{ height: 2 }} />
+            <View>
+              {!connected ? <View style={styles.banner}><Text style={styles.bannerText}>Нет связи.</Text></View> : null}
+              {errorText ? <Text style={styles.errorText}>{errorText}</Text> : <View style={styles.headerSpacer} />}
+            </View>
           }
           renderItem={({ item }) => {
             const highlighted = item.status === "waiting" || item.status === "bill";
+            const requestLabel =
+              item.activeRequest?.type === "bill" ? "Запросили счёт" : item.activeRequest ? "Вызвали официанта" : "";
+            const stackNavigation = navigation.getParent<NativeStackNavigationProp<WaiterStackParamList>>();
+
             return (
               <Pressable
                 style={[styles.card, highlighted && styles.cardHighlighted]}
-                onPress={() => navigation.navigate("WaiterTable", { tableId: item.tableId })}
+                onPress={() => stackNavigation?.navigate("WaiterTable", { tableId: item.tableId })}
               >
                 <View style={styles.cardHead}>
                   <Text style={styles.cardTitle}>Стол {item.tableId}</Text>
                   <StatusBadge status={item.status} />
                 </View>
-                <Text style={styles.cardTime}>⏱ {formatDurationFrom(item.guestStartedAt, now)}</Text>
-                {item.activeRequest ? (
+                <Text style={styles.cardTime}>За столом {formatDurationFrom(item.guestStartedAt, now)}</Text>
+                <Text style={styles.metaText}>Задачи: {item.openTasksCount} · Срочно: {item.urgentTasksCount}</Text>
+                {requestLabel ? (
                   <Text style={styles.requestText} numberOfLines={2}>
-                    🔔 {item.activeRequest.type === "bill" ? "Просит счёт" : "Ждёт официанта"}
+                    {requestLabel}
                   </Text>
-                ) : null}
+                ) : (
+                  <Text style={styles.metaText}>Без запросов</Text>
+                )}
               </Pressable>
             );
           }}
@@ -198,6 +214,20 @@ const styles = StyleSheet.create({
   row: {
     gap: 8,
   },
+  banner: {
+    marginHorizontal: 4,
+    marginBottom: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E8D6B5",
+    backgroundColor: "#FFF8EC",
+    padding: 10,
+  },
+  bannerText: {
+    color: "#8A6A33",
+    fontSize: 12,
+    lineHeight: 18,
+  },
   card: {
     flex: 1,
     backgroundColor: colors.white,
@@ -206,7 +236,7 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     padding: 10,
     marginBottom: 8,
-    minHeight: 128,
+    minHeight: 132,
   },
   cardHighlighted: {
     borderWidth: 2,
@@ -230,6 +260,12 @@ const styles = StyleSheet.create({
     color: "#8A6A33",
     fontSize: 12,
     lineHeight: 16,
+    fontWeight: "600",
+  },
+  metaText: {
+    marginTop: 8,
+    color: colors.muted,
+    fontSize: 12,
   },
   empty: {
     textAlign: "center",
@@ -240,5 +276,8 @@ const styles = StyleSheet.create({
     color: "#B42318",
     marginHorizontal: 4,
     marginBottom: 10,
+  },
+  headerSpacer: {
+    height: 2,
   },
 });

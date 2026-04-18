@@ -1,58 +1,113 @@
-# Giotto Staff Mobile (Expo)
+# Giotto Staff Mobile
 
-Мобильное приложение для ролей **официант** и **менеджер**.
-Вся серверная логика и данные находятся на сервере сайта (`Giotto`), а это приложение отвечает за UI/UX.
+`giotto-app` — продуктовый staff client для ролей `waiter` и `manager`.
+Гостевой сайт и backend/BFF живут в соседнем проекте `giotto`.
 
-## Что внутри
-- Экран входа с ролями `waiter` / `manager`
-- Поток официанта:
-  - Мои столы
-  - Детали стола
-  - Принять вызов
-  - Добавить заказ в счёт
-  - Кнопка `Все обслужил`
-  - Заметки к столу
-- Поток менеджера:
-  - Зал (мониторинг столов)
-  - Список официантов
-  - Меню (переключение доступности/стоп-листа)
+## Product scope
 
-## Backend
-Приложение ходит в API сайта (BFF) по адресам:
-- `/api/auth/login`
-- `/api/auth/logout`
-- `/api/waiter/*`
-- `/api/hall`
-- `/api/restaurant`
+### Waiter v1
+- Логин через staff auth API.
+- Список назначенных столов.
+- Детальная карточка стола.
+- `Acknowledge`, `Add order`, session note с autosave, `All service completed`.
+- Foreground realtime через `GET /api/staff/realtime/stream`.
+- Expo push для waiter-вызовов и запросов счёта.
 
-## Настройка
-Скопируйте `.env.example` в `.env` и при необходимости измените значения:
+### Manager v1
+- `Hall` как live monitor зала.
+- Детальная карточка стола.
+- `Reassign waiter` и `Close table`.
+- История событий за последние 7 дней.
+- Phone flow: `hall -> table detail`.
+- Tablet flow: split-view `hall + detail`.
+
+### Manager v2
+- `Team`: waiter accounts, password reset, assignments.
+- `Menu`: category CRUD, dish CRUD, availability toggle, reorder.
+- `Layout`: zones, table inventory, archive/restore, floor coordinates.
+
+## Architecture
+
+- `giotto-app` хранит access token в памяти и refresh token в `SecureStore`.
+- `giotto` остаётся единственным backend для guest site и staff app.
+- Staff web в `giotto` не считается продуктовым UI: `/manager*` и `/waiter*` остаются деприкейтнутыми.
+- Realtime в foreground идёт через SSE, background-уведомления waiter идут через Expo Push.
+
+## API surface used by the app
+
+### Staff auth
+- `POST /api/staff/auth/login`
+- `POST /api/staff/auth/refresh`
+- `POST /api/staff/auth/logout`
+- `GET /api/staff/me`
+
+### Waiter
+- `GET /api/staff/waiter/tables`
+- `GET /api/staff/waiter/tables/:tableId`
+- `POST /api/staff/waiter/tables/:tableId/ack`
+- `POST /api/staff/waiter/tables/:tableId/orders`
+- `PATCH /api/staff/waiter/tables/:tableId/note`
+- `POST /api/staff/waiter/tables/:tableId/done`
+
+### Manager
+- `GET /api/staff/manager/hall`
+- `GET /api/staff/manager/tables/:tableId`
+- `POST /api/staff/manager/tables/:tableId/reassign`
+- `POST /api/staff/manager/tables/:tableId/close`
+- `GET /api/staff/manager/history`
+- `GET|POST|PATCH|PUT /api/staff/manager/waiters*`
+- `GET|POST|PATCH|DELETE /api/staff/manager/menu*`
+- `GET|PATCH|POST /api/staff/manager/layout` and `.../tables*`
+
+### Realtime and devices
+- `GET /api/staff/realtime/stream`
+- `POST /api/staff/devices/push-token`
+
+## Local setup
+
+1. Скопируйте `.env.example` в `.env`.
+2. Укажите адрес backend-проекта `giotto`.
 
 ```env
 EXPO_PUBLIC_API_BASE_URL=http://localhost:3000
 ```
 
-### Важно для реального устройства
-- `localhost` в телефоне указывает на сам телефон.
-- Укажите IP машины, где запущен сервер сайта, например:
+### Real device note
+- На телефоне `localhost` указывает на само устройство.
+- Для локальной разработки обычно нужен IP машины, где поднят `giotto`.
+
+Пример:
 
 ```env
 EXPO_PUBLIC_API_BASE_URL=http://192.168.1.20:3000
 ```
 
-Примечание: приложение также пытается автоматически подставить IP dev-машины из Expo host, если в `.env` указан `localhost`.
+Если в `.env` указан `localhost`, приложение попробует автоматически подставить Expo host IP, когда это возможно.
 
-## Запуск
+## Push notifications
+
+Для Android push в Expo SDK 55 нужен dev build, а не Expo Go.
+
+```bash
+npm install -g eas-cli
+npm run dev-build
+```
+
+## Run
+
 ```bash
 npm install
 npm run start
 ```
 
-Далее:
-- `a` — Android
-- `i` — iOS
-- `w` — Web
+Дополнительно:
+- `npm test` — unit tests.
+- `a` — Android.
+- `i` — iOS.
+- `w` — web preview.
 
-## Замечания
-- Для официанта и менеджера используется единый серверный login endpoint `/api/auth/login`.
-- Учётные записи обеих ролей хранятся на сервере сайта (hall state / DB слой).
+## Compatibility notes
+
+- Waiter flow корректно теряет доступ к столу после manager `reassign` или `close`.
+- Manager screens работают только через `api/staff/manager/*`, без legacy `hall/restaurant` product-flow.
+- Guest-facing flows остаются на backend проекта `giotto`: waiter call, bill request, review, cart/menu snapshot.

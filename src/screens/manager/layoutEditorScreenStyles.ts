@@ -1,0 +1,276 @@
+import { StyleSheet } from "react-native";
+import { colors } from "../../theme/colors";
+
+export const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: colors.cream,
+  },
+  screen: {
+    flex: 1,
+    padding: 16,
+    gap: 12,
+  },
+  centerState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  header: {
+    gap: 10,
+  },
+  title: {
+    fontSize: 30,
+    fontWeight: "700",
+    color: colors.navyDeep,
+  },
+  subtitle: {
+    marginTop: 4,
+    color: colors.muted,
+    fontSize: 13,
+  },
+  headerActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  primaryButton: {
+    minHeight: 42,
+    borderRadius: 12,
+    backgroundColor: colors.navy,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+  primaryButtonText: {
+    color: colors.white,
+    fontWeight: "700",
+  },
+  secondaryButton: {
+    minHeight: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.white,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+  secondaryButtonText: {
+    color: colors.navy,
+    fontWeight: "600",
+  },
+  buttonDisabled: {
+    opacity: 0.55,
+  },
+  warningBanner: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E8D6B5",
+    backgroundColor: "#FFF8EC",
+    padding: 12,
+  },
+  warningBannerText: {
+    color: "#8A6A33",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  infoBanner: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#C6D6EA",
+    backgroundColor: "#F5FAFF",
+    padding: 12,
+    gap: 10,
+  },
+  infoBannerCopy: {
+    gap: 4,
+  },
+  infoBannerTitle: {
+    color: colors.navyDeep,
+    fontWeight: "700",
+  },
+  infoBannerText: {
+    color: colors.muted,
+    fontSize: 12,
+  },
+  infoBannerActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  errorText: {
+    color: "#B42318",
+  },
+  body: {
+    flex: 1,
+    gap: 12,
+  },
+  bodyTablet: {
+    flexDirection: "row",
+  },
+  canvasColumn: {
+    flex: 1,
+    gap: 12,
+  },
+  canvasCard: {
+    flex: 1,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.white,
+    padding: 12,
+    gap: 10,
+    minHeight: 360,
+  },
+  archiveCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.white,
+    padding: 12,
+    gap: 10,
+  },
+  archiveHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  archiveMeta: {
+    color: colors.muted,
+    fontSize: 12,
+  },
+  archiveList: {
+    gap: 10,
+    paddingRight: 10,
+  },
+  archiveItem: {
+    width: 180,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.cream,
+    padding: 12,
+    gap: 6,
+  },
+  archiveTitle: {
+    color: colors.navyDeep,
+    fontWeight: "700",
+  },
+  archiveText: {
+    color: colors.muted,
+    fontSize: 12,
+  },
+  sectionTitle: {
+    color: colors.navyDeep,
+    fontWeight: "700",
+    fontSize: 18,
+  },
+  canvasViewport: {
+    flex: 1,
+    borderRadius: 16,
+    overflow: "hidden",
+    backgroundColor: "#F4EEE4",
+    minHeight: 320,
+  },
+  canvasContent: {
+    flex: 1,
+  },
+  canvasGrid: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  gridLineVertical: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 1,
+    backgroundColor: "rgba(138, 106, 51, 0.12)",
+  },
+  gridLineHorizontal: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: "rgba(138, 106, 51, 0.12)",
+  },
+  inspectorPane: {
+    width: 340,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.white,
+    overflow: "hidden",
+  },
+  inspectorScroll: {
+    flex: 1,
+  },
+  inspectorContent: {
+    padding: 12,
+    gap: 12,
+  },
+  inspectorCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.white,
+    padding: 12,
+    gap: 10,
+  },
+  inspectorTitle: {
+    color: colors.navyDeep,
+    fontWeight: "700",
+    fontSize: 18,
+  },
+  input: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.white,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: colors.text,
+  },
+  fieldLabel: {
+    color: colors.navyDeep,
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  helperText: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  dangerButton: {
+    minHeight: 42,
+    borderRadius: 12,
+    backgroundColor: "#FDECEA",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+  dangerButtonText: {
+    color: "#B42318",
+    fontWeight: "700",
+  },
+  bottomSheet: {
+    position: "absolute",
+    left: 10,
+    right: 10,
+    bottom: 0,
+    maxHeight: "58%",
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.white,
+    overflow: "hidden",
+    shadowColor: "#0D2B6B",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    elevation: 10,
+  },
+  meta: {
+    color: colors.muted,
+  },
+});

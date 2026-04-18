@@ -1,11 +1,32 @@
+import type { NavigatorScreenParams } from "@react-navigation/native";
+
+export type WaiterTabParamList = {
+  WaiterQueue: { highlightTableId?: number } | undefined;
+  WaiterTables: undefined;
+  WaiterShift: undefined;
+};
+
 export type WaiterStackParamList = {
-  WaiterHome: undefined;
+  WaiterTabs: NavigatorScreenParams<WaiterTabParamList> | undefined;
   WaiterTable: { tableId: number };
   WaiterAddOrder: { tableId: number };
 };
 
 export type ManagerTabParamList = {
   ManagerHall: undefined;
-  ManagerWaiters: undefined;
+  ManagerHistory: undefined;
+  ManagerTeam: undefined;
   ManagerMenu: undefined;
+  ManagerLayout: undefined;
+};
+
+export type ManagerStackParamList = {
+  ManagerTabs: NavigatorScreenParams<ManagerTabParamList> | undefined;
+  ManagerTable: { tableId: number };
+};
+
+export type RootStackParamList = {
+  Login: undefined;
+  WaiterApp: NavigatorScreenParams<WaiterStackParamList> | undefined;
+  ManagerApp: NavigatorScreenParams<ManagerStackParamList> | undefined;
 };

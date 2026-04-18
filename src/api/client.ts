@@ -1,13 +1,35 @@
 import Constants from "expo-constants";
+import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
+import { getAccessToken, setAccessToken, subscribeAccessToken } from "./accessTokenStore";
 import type {
+  FloorZone,
+  FloorTableSizePreset,
   HallData,
+  ManagerHallResponse,
+  ManagerHistoryPage,
+  ManagerLayoutSnapshot,
+  ManagerMenuSnapshot,
+  ManagerTableDetail,
+  ManagerWaiterDetail,
+  ManagerWaiterSummary,
+  PushDeviceRegistration,
   RestaurantData,
+  StaffBootstrapResponse,
+  StaffLoginResponse,
+  WaiterQueueResponse,
+  WaiterShiftSummary,
+  WaiterShortcuts,
   WaiterTableDetailResponse,
   WaiterTablesResponse,
 } from "../types/domain";
 
+export { getAccessToken, setAccessToken, subscribeAccessToken } from "./accessTokenStore";
+
 const DEFAULT_PORT = "3000";
+const REFRESH_TOKEN_KEY = "giotto.mobile.refreshToken.v2";
+
+let refreshInFlight: Promise<StaffLoginResponse | null> | null = null;
 
 function extractExpoHost(): string | null {
   const fromManifest2 = (Constants as unknown as {
@@ -36,8 +58,6 @@ function resolveBaseUrl() {
 
   const normalized = envValue.replace(/\/$/, "");
 
-  // On physical devices localhost points to the phone itself.
-  // When we can detect Expo dev host, remap localhost to machine IP.
   if (expoHost && /localhost|127\.0\.0\.1/.test(normalized)) {
     const hasExplicitPort = /:\d+$/.test(normalized);
     const port = hasExplicitPort ? normalized.split(":").pop() || DEFAULT_PORT : DEFAULT_PORT;
@@ -45,7 +65,6 @@ function resolveBaseUrl() {
     return `${scheme}://${expoHost}:${port}`;
   }
 
-  // Android emulator can use 10.0.2.2 for localhost when running local-only.
   if (Platform.OS === "android" && /localhost/.test(normalized) && !expoHost) {
     return normalized.replace("localhost", "10.0.2.2");
   }
@@ -56,6 +75,8 @@ function resolveBaseUrl() {
 export const API_BASE_URL = resolveBaseUrl();
 
 type RequestOptions = RequestInit & {
+  auth?: boolean;
+  allow401?: boolean;
   query?: Record<string, string | number | boolean | undefined>;
 };
 
@@ -90,8 +111,30 @@ function parseJsonSafe(text: string) {
   }
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { query, headers, ...rest } = options;
+async function readRefreshToken() {
+  return SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+}
+
+async function writeRefreshToken(refreshToken: string) {
+  await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken);
+}
+
+async function clearRefreshToken() {
+  await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+}
+
+async function persistAuth(response: StaffLoginResponse) {
+  setAccessToken(response.accessToken);
+  await writeRefreshToken(response.refreshToken);
+}
+
+export async function clearStoredAuth() {
+  setAccessToken(null);
+  await clearRefreshToken();
+}
+
+async function rawRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { query, headers, auth = true, ...rest } = options;
 
   let response: Response;
   try {
@@ -99,16 +142,12 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       ...rest,
       headers: {
         "Content-Type": "application/json",
+        ...(auth && getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}),
         ...(headers || {}),
       },
-      credentials: "include",
     });
   } catch {
-    throw new ApiError(
-      `Network request failed. Проверьте доступ к API: ${API_BASE_URL}`,
-      0,
-      "network",
-    );
+    throw new ApiError(`Network request failed. Check API reachability at ${API_BASE_URL}`, 0, "network");
   }
 
   const text = await response.text();
@@ -121,52 +160,148 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return payload as T;
 }
 
-export type LoginResponse =
-  | {
-      session: { role: "waiter"; waiterId: string };
-      waiter: { id: string; name: string };
-      manager?: never;
-    }
-  | {
-      session: { role: "manager"; managerId: string };
-      manager: { id: string; name: string };
-      waiter?: never;
-    };
+async function refreshAccessToken(): Promise<StaffLoginResponse | null> {
+  if (refreshInFlight) return refreshInFlight;
 
-export async function loginStaff(login: string, password: string) {
-  return request<LoginResponse>("/api/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ login, password }),
-  });
+  refreshInFlight = (async () => {
+    const refreshToken = await readRefreshToken();
+    if (!refreshToken) return null;
+
+    try {
+      const response = await rawRequest<StaffLoginResponse>("/api/staff/auth/refresh", {
+        method: "POST",
+        auth: false,
+        body: JSON.stringify({ refreshToken }),
+      });
+      await persistAuth(response);
+      return response;
+    } catch {
+      await clearStoredAuth();
+      return null;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+
+  return refreshInFlight;
 }
 
-export async function logoutWaiter() {
-  return request<{ ok: boolean }>("/api/auth/logout", { method: "POST" });
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  try {
+    return await rawRequest<T>(path, options);
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    if (!options.auth || options.allow401 || error.status !== 401) throw error;
+
+    const refreshed = await refreshAccessToken();
+    if (!refreshed) throw error;
+
+    return rawRequest<T>(path, options);
+  }
+}
+
+export async function bootstrapStaffSession() {
+  try {
+    if (getAccessToken()) {
+      return await request<StaffBootstrapResponse>("/api/staff/me", { auth: true });
+    }
+  } catch {
+    // fall through to refresh
+  }
+
+  const refreshed = await refreshAccessToken();
+  if (!refreshed) return null;
+
+  try {
+    return await request<StaffBootstrapResponse>("/api/staff/me", { auth: true });
+  } catch {
+    await clearStoredAuth();
+    return null;
+  }
+}
+
+export async function loginStaff(login: string, password: string) {
+  const response = await rawRequest<StaffLoginResponse>("/api/staff/auth/login", {
+    method: "POST",
+    auth: false,
+    body: JSON.stringify({ login, password }),
+  });
+  await persistAuth(response);
+  return response;
+}
+
+export async function logoutStaff() {
+  const refreshToken = await readRefreshToken();
+  try {
+    await request<{ ok: boolean }>("/api/staff/auth/logout", {
+      method: "POST",
+      auth: true,
+      allow401: true,
+      body: JSON.stringify({ refreshToken }),
+    });
+  } catch {
+    // ignore logout transport failures
+  } finally {
+    await clearStoredAuth();
+  }
 }
 
 export async function fetchWaiterTables() {
-  return request<WaiterTablesResponse>("/api/waiter/me/tables");
+  return request<WaiterTablesResponse>("/api/staff/waiter/tables");
+}
+
+export async function fetchWaiterQueue() {
+  return request<WaiterQueueResponse>("/api/staff/waiter/queue");
 }
 
 export async function fetchWaiterTable(tableId: number) {
-  return request<WaiterTableDetailResponse>(`/api/waiter/tables/${tableId}`);
+  return request<WaiterTableDetailResponse>(`/api/staff/waiter/tables/${tableId}`);
+}
+
+export async function ackWaiterTask(taskId: string) {
+  return request<WaiterTableDetailResponse>(`/api/staff/waiter/tasks/${taskId}/ack`, {
+    method: "POST",
+  });
+}
+
+export async function startWaiterTask(taskId: string) {
+  return request<WaiterTableDetailResponse>(`/api/staff/waiter/tasks/${taskId}/start`, {
+    method: "POST",
+  });
+}
+
+export async function completeWaiterTask(taskId: string, mutationKey?: string) {
+  return request<WaiterTableDetailResponse>(`/api/staff/waiter/tasks/${taskId}/complete`, {
+    method: "POST",
+    body: JSON.stringify({ mutationKey }),
+  });
 }
 
 export async function ackWaiterRequest(tableId: number, requestId: string) {
-  return request<WaiterTableDetailResponse>(`/api/waiter/tables/${tableId}/ack`, {
+  return request<WaiterTableDetailResponse>(`/api/staff/waiter/tables/${tableId}/ack`, {
     method: "POST",
     body: JSON.stringify({ requestId }),
   });
 }
 
+export async function createWaiterFollowUp(
+  tableId: number,
+  payload: { title: string; dueInMin?: number; note?: string },
+) {
+  return request<WaiterTableDetailResponse>(`/api/staff/waiter/tables/${tableId}/follow-ups`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function doneWaiter(tableId: number) {
-  return request<WaiterTableDetailResponse>(`/api/waiter/tables/${tableId}/done`, {
+  return request<WaiterTableDetailResponse>(`/api/staff/waiter/tables/${tableId}/done`, {
     method: "POST",
   });
 }
 
 export async function setTableNote(tableId: number, note: string) {
-  return request<WaiterTableDetailResponse>(`/api/waiter/tables/${tableId}/note`, {
+  return request<WaiterTableDetailResponse>(`/api/staff/waiter/tables/${tableId}/note`, {
     method: "PATCH",
     body: JSON.stringify({ note }),
   });
@@ -175,37 +310,285 @@ export async function setTableNote(tableId: number, note: string) {
 export async function addWaiterOrder(
   tableId: number,
   items: Array<{ dishId?: string; title: string; qty: number; price: number; note?: string }>,
+  mutationKey?: string,
 ) {
-  return request<WaiterTableDetailResponse>(`/api/waiter/tables/${tableId}/orders`, {
+  return request<WaiterTableDetailResponse>(`/api/staff/waiter/tables/${tableId}/orders`, {
     method: "POST",
-    body: JSON.stringify({ items }),
+    body: JSON.stringify({ items, mutationKey }),
   });
+}
+
+export async function repeatLastWaiterOrder(tableId: number, payload?: { sourceSessionId?: string; mutationKey?: string }) {
+  return request<WaiterTableDetailResponse>(`/api/staff/waiter/tables/${tableId}/orders/repeat-last`, {
+    method: "POST",
+    body: JSON.stringify(payload ?? {}),
+  });
+}
+
+export async function fetchWaiterShortcuts() {
+  return request<WaiterShortcuts>("/api/staff/waiter/shortcuts");
+}
+
+export async function updateWaiterShortcuts(payload: WaiterShortcuts) {
+  return request<WaiterShortcuts>("/api/staff/waiter/shortcuts", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchWaiterShiftSummary() {
+  return request<WaiterShiftSummary>("/api/staff/waiter/shift-summary");
+}
+
+export async function fetchManagerHall() {
+  return request<ManagerHallResponse>("/api/staff/manager/hall");
+}
+
+export async function fetchManagerTable(tableId: number) {
+  return request<ManagerTableDetail>(`/api/staff/manager/tables/${tableId}`);
+}
+
+export async function reassignManagerTable(tableId: number, waiterId?: string) {
+  return request<ManagerTableDetail>(`/api/staff/manager/tables/${tableId}/reassign`, {
+    method: "POST",
+    body: JSON.stringify({ waiterId }),
+  });
+}
+
+export async function closeManagerTable(tableId: number) {
+  return request<ManagerTableDetail>(`/api/staff/manager/tables/${tableId}/close`, {
+    method: "POST",
+  });
+}
+
+export async function fetchManagerHistory(params: {
+  tableId?: number;
+  waiterId?: string;
+  type?: string;
+  cursor?: string;
+  limit?: number;
+}) {
+  return request<ManagerHistoryPage>("/api/staff/manager/history", {
+    query: params,
+  });
+}
+
+export async function fetchManagerWaiters() {
+  return request<ManagerWaiterSummary[]>("/api/staff/manager/waiters");
+}
+
+export async function fetchManagerWaiter(waiterId: string) {
+  return request<ManagerWaiterDetail>(`/api/staff/manager/waiters/${waiterId}`);
+}
+
+export async function createManagerWaiter(payload: {
+  name: string;
+  login: string;
+  password: string;
+  tableIds: number[];
+}) {
+  return request<ManagerWaiterDetail>("/api/staff/manager/waiters", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateManagerWaiter(
+  waiterId: string,
+  payload: {
+    name?: string;
+    login?: string;
+    active?: boolean;
+  },
+) {
+  return request<ManagerWaiterDetail>(`/api/staff/manager/waiters/${waiterId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function resetManagerWaiterPassword(waiterId: string, password: string) {
+  return request<ManagerWaiterDetail>(`/api/staff/manager/waiters/${waiterId}/reset-password`, {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
+}
+
+export async function replaceManagerWaiterAssignments(waiterId: string, tableIds: number[]) {
+  return request<ManagerWaiterDetail>(`/api/staff/manager/waiters/${waiterId}/assignments`, {
+    method: "PUT",
+    body: JSON.stringify({ tableIds }),
+  });
+}
+
+export async function fetchManagerMenu() {
+  return request<ManagerMenuSnapshot>("/api/staff/manager/menu");
+}
+
+export async function createManagerCategory(payload: {
+  labelRu: string;
+  icon?: string;
+  sortOrder?: number;
+}) {
+  return request<ManagerMenuSnapshot>("/api/staff/manager/menu/categories", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateManagerCategory(
+  categoryId: string,
+  payload: { labelRu: string; icon?: string; sortOrder?: number },
+) {
+  return request<ManagerMenuSnapshot>(`/api/staff/manager/menu/categories/${categoryId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteManagerCategory(categoryId: string) {
+  return request<ManagerMenuSnapshot>(`/api/staff/manager/menu/categories/${categoryId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function createManagerDish(payload: {
+  categoryId: string;
+  nameRu: string;
+  nameIt: string;
+  description: string;
+  price: number;
+  image: string;
+  portion: string;
+  energyKcal: number;
+  badgeLabel?: string;
+  badgeTone?: string;
+  highlight?: boolean;
+  available: boolean;
+}) {
+  return request<ManagerMenuSnapshot>("/api/staff/manager/menu/dishes", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateManagerDish(
+  dishId: string,
+  payload: {
+    categoryId: string;
+    nameRu: string;
+    nameIt: string;
+    description: string;
+    price: number;
+    image: string;
+    portion: string;
+    energyKcal: number;
+    badgeLabel?: string;
+    badgeTone?: string;
+    highlight?: boolean;
+    available: boolean;
+  },
+) {
+  return request<ManagerMenuSnapshot>(`/api/staff/manager/menu/dishes/${dishId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteManagerDish(dishId: string) {
+  return request<ManagerMenuSnapshot>(`/api/staff/manager/menu/dishes/${dishId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function toggleManagerDishAvailability(dishId: string) {
+  return request<ManagerMenuSnapshot>(`/api/staff/manager/menu/dishes/${dishId}/toggle-availability`, {
+    method: "POST",
+  });
+}
+
+export async function reorderManagerMenu(payload: {
+  categoryIds?: string[];
+  dishIdsByCategory?: Record<string, string[]>;
+}) {
+  return request<ManagerMenuSnapshot>("/api/staff/manager/menu/reorder", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchManagerLayout() {
+  return request<ManagerLayoutSnapshot>("/api/staff/manager/layout");
+}
+
+export async function updateManagerLayout(payload: {
+  tables: Array<{
+    tableId: number;
+    label?: string;
+    x: number;
+    y: number;
+    shape: "square" | "round" | "rect";
+    sizePreset: FloorTableSizePreset;
+  }>;
+  zones: FloorZone[];
+}) {
+  return request<ManagerLayoutSnapshot>("/api/staff/manager/layout", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createManagerTable(payload?: {
+  label?: string;
+  shape?: "square" | "round" | "rect";
+  sizePreset?: FloorTableSizePreset;
+  x?: number;
+  y?: number;
+}) {
+  return request<ManagerLayoutSnapshot>("/api/staff/manager/tables", {
+    method: "POST",
+    body: JSON.stringify(payload ?? {}),
+  });
+}
+
+export async function archiveManagerTable(tableId: number) {
+  return request<ManagerLayoutSnapshot>(`/api/staff/manager/tables/${tableId}/archive`, {
+    method: "POST",
+  });
+}
+
+export async function restoreManagerTable(tableId: number) {
+  return request<ManagerLayoutSnapshot>(`/api/staff/manager/tables/${tableId}/restore`, {
+    method: "POST",
+  });
+}
+
+export async function registerPushToken(payload: PushDeviceRegistration) {
+  return request<{ ok: boolean }>("/api/staff/devices/push-token", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchRestaurantData() {
+  return request<RestaurantData>("/api/restaurant", { auth: false });
 }
 
 export async function fetchHallData() {
-  return request<HallData>("/api/hall");
-}
-
-export async function updateHallData(hall: HallData) {
-  return request<HallData>("/api/hall", {
-    method: "PUT",
-    body: JSON.stringify(hall),
-  });
+  return request<HallData>("/api/hall", { auth: false });
 }
 
 export async function resetHallData() {
   return request<HallData>("/api/hall/reset", {
     method: "POST",
+    auth: false,
   });
-}
-
-export async function fetchRestaurantData() {
-  return request<RestaurantData>("/api/restaurant");
 }
 
 export async function updateRestaurantData(data: RestaurantData) {
   return request<RestaurantData>("/api/restaurant", {
     method: "PUT",
+    auth: true,
     body: JSON.stringify(data),
   });
 }

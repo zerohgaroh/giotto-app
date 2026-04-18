@@ -14,7 +14,7 @@ export const colors = {
 export const statusColors: Record<string, { bg: string; text: string; label: string }> = {
   free: { bg: "#EAF3DE", text: "#2D6A4F", label: "Свободен" },
   occupied: { bg: "#E6EFFC", text: "#1A3F8A", label: "Занят" },
-  waiting: { bg: "#F4E8D3", text: "#8A6A33", label: "Ждёт официанта" },
-  ordered: { bg: "#E5ECFA", text: "#0D2B6B", label: "Заказал" },
-  bill: { bg: "#F9E9DB", text: "#B5702A", label: "Просит счёт" },
+  waiting: { bg: "#F4E8D3", text: "#8A6A33", label: "Ждёт" },
+  ordered: { bg: "#E5ECFA", text: "#0D2B6B", label: "Заказ" },
+  bill: { bg: "#F9E9DB", text: "#B5702A", label: "Счёт" },
 };

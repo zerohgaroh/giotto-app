@@ -24,8 +24,8 @@ export function ManagerWaitersScreen() {
       const next = await fetchHallData();
       setHall(next);
       setErrorText("");
-    } catch (error) {
-      setErrorText(error instanceof Error ? error.message : "Не удалось загрузить официантов");
+    } catch {
+      setErrorText("Не удалось загрузить официантов.");
     } finally {
       if (withLoader) setLoading(false);
     }

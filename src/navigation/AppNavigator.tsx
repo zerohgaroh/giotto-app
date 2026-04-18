@@ -5,9 +5,11 @@ import { useAuth } from "../context/AuthContext";
 import { LoginScreen } from "../screens/LoginScreen";
 import { colors } from "../theme/colors";
 import { ManagerNavigator } from "./ManagerNavigator";
+import { flushPendingNavigation, navigationRef } from "./navigationRef";
+import type { RootStackParamList } from "./types";
 import { WaiterNavigator } from "./WaiterNavigator";
 
-const Stack = createNativeStackNavigator();
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
 const navigationTheme = {
   ...DefaultTheme,
@@ -35,7 +37,7 @@ export function AppNavigator() {
   }
 
   return (
-    <NavigationContainer theme={navigationTheme}>
+    <NavigationContainer ref={navigationRef} theme={navigationTheme} onReady={flushPendingNavigation}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {!role ? <Stack.Screen name="Login" component={LoginScreen} /> : null}
         {role === "waiter" ? <Stack.Screen name="WaiterApp" component={WaiterNavigator} /> : null}

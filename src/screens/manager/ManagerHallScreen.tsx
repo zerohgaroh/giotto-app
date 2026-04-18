@@ -1,3 +1,5 @@
+import { useNavigation } from "@react-navigation/native";
+import type { NavigationProp } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -7,29 +9,49 @@ import {
   SafeAreaView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
-import { fetchHallData, resetHallData } from "../../api/client";
+import { fetchManagerHall } from "../../api/client";
 import { StatusBadge } from "../../components/StatusBadge";
+import type { ManagerStackParamList } from "../../navigation/types";
+import { useStaffRealtime } from "../../realtime/useStaffRealtime";
 import { colors } from "../../theme/colors";
 import { formatDurationFrom } from "../../theme/format";
-import type { HallData } from "../../types/domain";
+import type { ManagerHallResponse, ServiceTableStatus } from "../../types/domain";
+import { ManagerTablePanel } from "./ManagerTablePanel";
+
+const FILTERS: Array<{ id: "all" | ServiceTableStatus; label: string }> = [
+  { id: "all", label: "Все" },
+  { id: "waiting", label: "Ждут" },
+  { id: "bill", label: "Счёт" },
+  { id: "ordered", label: "Заказ" },
+  { id: "occupied", label: "Заняты" },
+  { id: "free", label: "Свободны" },
+];
 
 export function ManagerHallScreen() {
-  const [hall, setHall] = useState<HallData | null>(null);
+  const navigation = useNavigation<NavigationProp<ManagerStackParamList>>();
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 900;
+
+  const [data, setData] = useState<ManagerHallResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorText, setErrorText] = useState("");
   const [now, setNow] = useState(Date.now());
+  const [filter, setFilter] = useState<"all" | ServiceTableStatus>("all");
+  const [selectedTableId, setSelectedTableId] = useState<number | null>(null);
 
   const pull = useCallback(async (withLoader = false) => {
     if (withLoader) setLoading(true);
     try {
-      const next = await fetchHallData();
-      setHall(next);
+      const next = await fetchManagerHall();
+      setData(next);
       setErrorText("");
-    } catch (error) {
-      setErrorText(error instanceof Error ? error.message : "Не удалось загрузить зал");
+      setSelectedTableId((current) => current ?? next.tables[0]?.tableId ?? null);
+    } catch {
+      setErrorText("Не удалось загрузить зал.");
     } finally {
       if (withLoader) setLoading(false);
     }
@@ -37,31 +59,35 @@ export function ManagerHallScreen() {
 
   useEffect(() => {
     void pull(true);
-    const poll = setInterval(() => {
-      void pull(false);
-    }, 3000);
     const timer = setInterval(() => setNow(Date.now()), 1000);
-
-    return () => {
-      clearInterval(poll);
-      clearInterval(timer);
-    };
+    return () => clearInterval(timer);
   }, [pull]);
 
-  const activeCalls = useMemo(
-    () => (hall?.requests || []).filter((request) => !request.resolvedAt).length,
-    [hall?.requests],
+  const { connected } = useStaffRealtime(
+    useCallback(() => {
+      void pull(false);
+    }, [pull]),
   );
 
-  const onReset = async () => {
-    try {
-      const next = await resetHallData();
-      setHall(next);
-      setErrorText("");
-    } catch (error) {
-      setErrorText(error instanceof Error ? error.message : "Не удалось сбросить смену");
-    }
+  const filteredTables = useMemo(() => {
+    const tables = data?.tables ?? [];
+    return tables.filter((table) => filter === "all" || table.status === filter);
+  }, [data?.tables, filter]);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await pull(false);
+    setRefreshing(false);
   };
+
+  const kpis = useMemo(() => {
+    const tables = data?.tables ?? [];
+    return {
+      activeCalls: tables.filter((table) => table.activeRequestsCount > 0).length,
+      occupied: tables.filter((table) => table.status !== "free").length,
+      total: tables.length,
+    };
+  }, [data?.tables]);
 
   if (loading) {
     return (
@@ -75,50 +101,102 @@ export function ManagerHallScreen() {
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
         <Text style={styles.title}>Зал</Text>
-        <View style={styles.counter}><Text style={styles.counterText}>Вызовы: {activeCalls}</Text></View>
       </View>
 
-      <View style={styles.actionRow}>
-        <Text style={styles.subtitle}>Мониторинг столов в реальном времени</Text>
-        <Pressable style={styles.resetBtn} onPress={() => void onReset()}>
-          <Text style={styles.resetBtnText}>Сброс смены</Text>
-        </Pressable>
+      <View style={styles.kpiRow}>
+        <View style={styles.kpiCard}>
+          <Text style={styles.kpiLabel}>Вызовы</Text>
+          <Text style={styles.kpiValue}>{kpis.activeCalls}</Text>
+        </View>
+        <View style={styles.kpiCard}>
+          <Text style={styles.kpiLabel}>Заняты</Text>
+          <Text style={styles.kpiValue}>
+            {kpis.occupied}/{kpis.total}
+          </Text>
+        </View>
       </View>
 
-      {errorText ? <Text style={styles.error}>{errorText}</Text> : null}
+      <View style={styles.filterRow}>
+        {FILTERS.map((item) => (
+          <Pressable
+            key={item.id}
+            style={[styles.filterChip, filter === item.id && styles.filterChipActive]}
+            onPress={() => setFilter(item.id)}
+          >
+            <Text style={[styles.filterChipText, filter === item.id && styles.filterChipTextActive]}>{item.label}</Text>
+          </Pressable>
+        ))}
+      </View>
 
-      <FlatList
-        data={[...(hall?.tables || [])].sort((a, b) => a.tableId - b.tableId)}
-        keyExtractor={(item) => String(item.tableId)}
-        numColumns={2}
-        columnWrapperStyle={styles.row}
-        contentContainerStyle={styles.listContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => {
-          setRefreshing(true);
-          await pull(false);
-          setRefreshing(false);
-        }} />}
-        renderItem={({ item }) => {
-          const waiter = hall?.waiters.find((w) => w.id === item.assignedWaiterId);
-          const request = hall?.requests
-            .filter((r) => r.tableId === item.tableId && !r.resolvedAt)
-            .sort((a, b) => b.createdAt - a.createdAt)[0];
+      {!connected ? <View style={styles.banner}><Text style={styles.bannerText}>Нет связи.</Text></View> : null}
 
-          return (
-            <View style={[styles.card, request && styles.alertCard]}>
-              <View style={styles.cardHead}>
-                <Text style={styles.cardTitle}>Стол {item.tableId}</Text>
-                <StatusBadge status={item.status} />
-              </View>
-              <Text style={styles.cardMeta}>👤 {waiter?.name || "Без официанта"}</Text>
-              <Text style={styles.cardMeta}>⏱ {formatDurationFrom(item.guestStartedAt, now)}</Text>
-              {request ? (
-                <Text style={styles.request}>🔔 {request.type === "bill" ? "Просит счёт" : "Вызов"}</Text>
-              ) : null}
-            </View>
-          );
-        }}
-      />
+      {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
+
+      {isTablet ? (
+        <View style={styles.tabletLayout}>
+          <FlatList
+            data={filteredTables}
+            keyExtractor={(item) => String(item.tableId)}
+            contentContainerStyle={styles.listContent}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+            renderItem={({ item }) => {
+              const waiter = data?.waiters.find((candidate) => candidate.id === item.assignedWaiterId);
+              const selected = selectedTableId === item.tableId;
+              return (
+                <Pressable
+                  style={[styles.card, selected && styles.cardSelected, item.activeRequestsCount > 0 && styles.cardAlert]}
+                  onPress={() => setSelectedTableId(item.tableId)}
+                >
+                  <View style={styles.cardHead}>
+                    <Text style={styles.cardTitle}>Стол {item.tableId}</Text>
+                    <StatusBadge status={item.status} />
+                  </View>
+                  <Text style={styles.cardMeta}>{waiter?.name || "Не назначен"}</Text>
+                  <Text style={styles.cardMeta}>За столом {formatDurationFrom(item.guestStartedAt, now)}</Text>
+                  <Text style={styles.cardMeta}>
+                    {item.activeRequestsCount > 0 ? `Запросов: ${item.activeRequestsCount}` : "Без запросов"}
+                  </Text>
+                </Pressable>
+              );
+            }}
+          />
+          <View style={styles.detailPane}>
+            {selectedTableId ? (
+              <ManagerTablePanel tableId={selectedTableId} onMutated={() => void pull(false)} />
+            ) : (
+              <Text style={styles.emptyText}>Выберите стол</Text>
+            )}
+          </View>
+        </View>
+      ) : (
+        <FlatList
+          data={filteredTables}
+          keyExtractor={(item) => String(item.tableId)}
+          numColumns={2}
+          columnWrapperStyle={styles.row}
+          contentContainerStyle={styles.listContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          renderItem={({ item }) => {
+            const waiter = data?.waiters.find((candidate) => candidate.id === item.assignedWaiterId);
+            return (
+              <Pressable
+                style={[styles.card, item.activeRequestsCount > 0 && styles.cardAlert]}
+                onPress={() => navigation.navigate("ManagerTable", { tableId: item.tableId })}
+              >
+                <View style={styles.cardHead}>
+                  <Text style={styles.cardTitle}>Стол {item.tableId}</Text>
+                  <StatusBadge status={item.status} />
+                </View>
+                <Text style={styles.cardMeta}>{waiter?.name || "Не назначен"}</Text>
+                <Text style={styles.cardMeta}>За столом {formatDurationFrom(item.guestStartedAt, now)}</Text>
+                <Text style={styles.cardMeta}>
+                  {item.activeRequestsCount > 0 ? `Запросов: ${item.activeRequestsCount}` : "Без запросов"}
+                </Text>
+              </Pressable>
+            );
+          }}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -134,66 +212,90 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 16,
-    paddingTop: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    paddingTop: 16,
   },
   title: {
     fontSize: 30,
+    fontWeight: "700",
     color: colors.navyDeep,
-    fontWeight: "700",
   },
-  counter: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#E5BDAE",
-    backgroundColor: "#FFF1ED",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  counterText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#B42318",
-  },
-  actionRow: {
-    paddingHorizontal: 16,
-    marginTop: 8,
+  kpiRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    marginTop: 14,
   },
-  subtitle: {
+  kpiCard: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.white,
+    padding: 12,
+  },
+  kpiLabel: {
     color: colors.muted,
     fontSize: 12,
-    flex: 1,
-    paddingRight: 10,
   },
-  resetBtn: {
-    borderRadius: 10,
+  kpiValue: {
+    marginTop: 6,
+    color: colors.navyDeep,
+    fontSize: 24,
+    fontWeight: "700",
+  },
+  filterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingHorizontal: 16,
+    marginTop: 12,
+  },
+  filterChip: {
+    borderRadius: 999,
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.white,
     paddingHorizontal: 10,
     paddingVertical: 7,
   },
-  resetBtnText: {
+  filterChipActive: {
+    borderColor: colors.navy,
+    backgroundColor: colors.navy,
+  },
+  filterChipText: {
     color: colors.navy,
     fontWeight: "600",
     fontSize: 12,
   },
-  error: {
-    paddingHorizontal: 16,
+  filterChipTextActive: {
+    color: colors.white,
+  },
+  banner: {
+    marginTop: 10,
+    marginHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E8D6B5",
+    backgroundColor: "#FFF8EC",
+    padding: 10,
+  },
+  bannerText: {
+    color: "#8A6A33",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  errorText: {
     marginTop: 8,
+    marginHorizontal: 16,
     color: "#B42318",
+  },
+  row: {
+    gap: 8,
   },
   listContent: {
     paddingHorizontal: 12,
     paddingTop: 12,
-    paddingBottom: 20,
-  },
-  row: {
+    paddingBottom: 24,
     gap: 8,
   },
   card: {
@@ -202,11 +304,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.white,
-    padding: 10,
+    padding: 12,
     marginBottom: 8,
-    minHeight: 130,
+    minHeight: 132,
   },
-  alertCard: {
+  cardSelected: {
+    borderColor: colors.navy,
+  },
+  cardAlert: {
     borderWidth: 2,
     borderColor: colors.gold,
   },
@@ -214,19 +319,33 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   cardTitle: {
-    color: colors.navyDeep,
     fontSize: 16,
     fontWeight: "700",
+    color: colors.navyDeep,
   },
   cardMeta: {
-    marginTop: 7,
+    marginTop: 8,
     color: colors.muted,
     fontSize: 12,
   },
-  request: {
+  tabletLayout: {
+    flex: 1,
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingBottom: 12,
     marginTop: 8,
-    color: "#8A6A33",
-    fontWeight: "700",
-    fontSize: 12,
+  },
+  detailPane: {
+    flex: 1.1,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.white,
+    overflow: "hidden",
+  },
+  emptyText: {
+    color: colors.muted,
+    padding: 20,
   },
 });
