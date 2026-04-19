@@ -279,7 +279,7 @@ export function WaiterTableScreen({ navigation, route }: Props) {
 
   if (loading || !data) {
     return (
-      <SafeAreaView style={[styles.safeArea, styles.center]}>
+      <SafeAreaView style={[styles.safeArea, styles.center]} edges={["top"]}>
         <ActivityIndicator color={colors.navy} />
       </SafeAreaView>
     );

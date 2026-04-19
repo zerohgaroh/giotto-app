@@ -275,7 +275,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: colors.navyDeep,
     fontWeight: "700",
-    fontSize: 34,
+    fontSize: 18,
   },
   categoriesRow: {
     flexDirection: "row",
