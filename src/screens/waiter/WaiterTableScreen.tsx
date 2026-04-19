@@ -4,18 +4,17 @@ import {
   ActivityIndicator,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ackWaiterRequest,
   ackWaiterTask,
   completeWaiterTask,
-  createWaiterFollowUp,
   doneWaiter,
   fetchWaiterShortcuts,
   fetchWaiterTable,
@@ -73,8 +72,8 @@ function taskStatusText(task: WaiterTask) {
 
 function taskTypeText(task: WaiterTask) {
   if (task.type === "bill_request") return "Счёт";
-  if (task.type === "follow_up") return "Напоминание";
-  return "Официант";
+  if (task.type === "follow_up") return "Задача";
+  return "Вызов";
 }
 
 function taskBadgeStatus(task: WaiterTask): "bill" | "waiting" | "occupied" {
@@ -95,11 +94,10 @@ export function WaiterTableScreen({ navigation, route }: Props) {
   const [savingNote, setSavingNote] = useState(false);
   const [errorText, setErrorText] = useState("");
   const [now, setNow] = useState(Date.now());
-  const [followUpTitle, setFollowUpTitle] = useState("");
-  const [followUpDueMin, setFollowUpDueMin] = useState("5");
   const [taskBusyId, setTaskBusyId] = useState<string | null>(null);
   const [repeatBusy, setRepeatBusy] = useState(false);
-  const [creatingFollowUp, setCreatingFollowUp] = useState(false);
+  const [doneBusy, setDoneBusy] = useState(false);
+  const [historyVisibleCount, setHistoryVisibleCount] = useState(5);
 
   const applyDetail = useCallback(
     async (next: WaiterTableDetailResponse, options?: { useStoredDraft?: boolean }) => {
@@ -202,15 +200,12 @@ export function WaiterTableScreen({ navigation, route }: Props) {
     setRefreshing(false);
   };
 
-  const doneCooldownLeft = useMemo(() => {
-    if (!data?.table.doneCooldownUntil) return 0;
-    return Math.max(0, data.table.doneCooldownUntil - now);
-  }, [data?.table.doneCooldownUntil, now]);
-
   const total = useMemo(
     () => (data?.billLines || []).reduce((sum, line) => sum + line.qty * line.price, 0),
     [data?.billLines],
   );
+  const visibleTimeline = useMemo(() => data?.timeline.slice(0, historyVisibleCount) ?? [], [data?.timeline, historyVisibleCount]);
+  const hasMoreTimeline = (data?.timeline.length ?? 0) > historyVisibleCount;
 
   const onAckRequest = async (requestId: string) => {
     try {
@@ -265,44 +260,20 @@ export function WaiterTableScreen({ navigation, route }: Props) {
     }
   };
 
-  const onCreateFollowUp = async () => {
-    const trimmed = followUpTitle.trim();
-    if (!trimmed) return;
-
-    setCreatingFollowUp(true);
-    try {
-      const dueInMin = Number.parseInt(followUpDueMin, 10);
-      const next = await createWaiterFollowUp(tableId, {
-        title: trimmed,
-        dueInMin: Number.isFinite(dueInMin) && dueInMin > 0 ? dueInMin : undefined,
-        note: noteDraft.trim() || undefined,
-      });
-      await applyDetail(next);
-      setFollowUpTitle("");
-      setFollowUpDueMin("5");
-      setErrorText("");
-    } catch (error) {
-      if (shouldExitWaiterTableFlow(error)) {
-        navigation.goBack();
-        return;
-      }
-      setErrorText("Не удалось создать задачу.");
-    } finally {
-      setCreatingFollowUp(false);
-    }
-  };
-
   const onDone = async () => {
+    setDoneBusy(true);
     try {
-      const next = await doneWaiter(tableId);
-      await applyDetail(next);
+      await doneWaiter(tableId);
       setErrorText("");
+      navigation.goBack();
     } catch (error) {
       if (shouldExitWaiterTableFlow(error)) {
         navigation.goBack();
         return;
       }
       setErrorText("Не удалось завершить обслуживание.");
+    } finally {
+      setDoneBusy(false);
     }
   };
 
@@ -315,7 +286,7 @@ export function WaiterTableScreen({ navigation, route }: Props) {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -476,46 +447,30 @@ export function WaiterTableScreen({ navigation, route }: Props) {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Напоминание</Text>
-          <TextInput
-            value={followUpTitle}
-            onChangeText={setFollowUpTitle}
-            placeholder="Что сделать"
-            placeholderTextColor="#8A847A"
-            style={styles.fieldInput}
-          />
-          <TextInput
-            value={followUpDueMin}
-            onChangeText={setFollowUpDueMin}
-            keyboardType="number-pad"
-            placeholder="Через сколько минут"
-            placeholderTextColor="#8A847A"
-            style={styles.fieldInput}
-          />
-          <Pressable
-            style={[styles.outlineButton, creatingFollowUp && styles.buttonDisabled]}
-            disabled={creatingFollowUp || !followUpTitle.trim()}
-            onPress={() => void onCreateFollowUp()}
-          >
-            <Text style={styles.outlineButtonText}>{creatingFollowUp ? "..." : "Создать"}</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.card}>
           <Text style={styles.cardTitle}>История</Text>
           {data.timeline.length === 0 ? (
             <Text style={styles.emptyText}>Пока пусто.</Text>
           ) : (
             <View style={styles.stack}>
-              {data.timeline.map((entry) => (
+              {visibleTimeline.map((entry) => (
                 <View key={entry.id} style={styles.timelineRow}>
                   <Text style={styles.timelineTitle}>{timelineLabel(entry)}</Text>
                   <Text style={styles.timelineMeta}>
-                    {formatTime(entry.ts)} · {entry.actorRole}
-                    {entry.actorId ? ` (${entry.actorId})` : ""}
+                    {formatTime(entry.ts)} · {entry.actorRole === "guest"
+                      ? "Гость"
+                      : entry.actorRole === "waiter"
+                        ? "Официант"
+                        : entry.actorRole === "manager"
+                          ? "Менеджер"
+                          : "Система"}
                   </Text>
                 </View>
               ))}
+              {hasMoreTimeline ? (
+                <Pressable style={styles.showMoreButton} onPress={() => setHistoryVisibleCount((current) => current + 5)}>
+                  <Text style={styles.showMoreButtonText}>Показать ещё</Text>
+                </Pressable>
+              ) : null}
             </View>
           )}
         </View>
@@ -530,13 +485,11 @@ export function WaiterTableScreen({ navigation, route }: Props) {
 
       <View style={styles.bottomBar}>
         <Pressable
-          disabled={doneCooldownLeft > 0}
-          style={[styles.doneButton, doneCooldownLeft > 0 && styles.doneButtonDisabled]}
+          disabled={doneBusy}
+          style={[styles.doneButton, doneBusy && styles.doneButtonDisabled]}
           onPress={() => void onDone()}
         >
-          <Text style={styles.doneButtonText}>
-            {doneCooldownLeft > 0 ? `Через ${Math.ceil(doneCooldownLeft / 1000)}с` : "Всё обслужил"}
-          </Text>
+          <Text style={styles.doneButtonText}>{doneBusy ? "..." : "Всё обслужил"}</Text>
         </Pressable>
       </View>
     </SafeAreaView>
@@ -796,15 +749,6 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
     color: colors.text,
   },
-  fieldInput: {
-    minHeight: 44,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 10,
-    backgroundColor: colors.white,
-    paddingHorizontal: 12,
-    color: colors.text,
-  },
   templateChip: {
     borderRadius: 999,
     borderWidth: 1,
@@ -835,6 +779,21 @@ const styles = StyleSheet.create({
   timelineMeta: {
     color: colors.muted,
     fontSize: 12,
+  },
+  showMoreButton: {
+    marginTop: 2,
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.white,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  showMoreButtonText: {
+    color: colors.navy,
+    fontSize: 12,
+    fontWeight: "600",
   },
   bottomBar: {
     position: "absolute",

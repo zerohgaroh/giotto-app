@@ -7,13 +7,12 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { ackWaiterTask, completeWaiterTask, fetchWaiterQueue, startWaiterTask } from "../../api/client";
-import { StatusBadge } from "../../components/StatusBadge";
 import type { WaiterStackParamList, WaiterTabParamList } from "../../navigation/types";
 import { useWaiterRealtime } from "../../realtime/useWaiterRealtime";
 import { createMutationKey } from "../../runtime/waiterDrafts";
@@ -26,8 +25,20 @@ type Props = BottomTabScreenProps<WaiterTabParamList, "WaiterQueue">;
 
 function taskTypeLabel(task: WaiterTask) {
   if (task.type === "bill_request") return "Счёт";
-  if (task.type === "follow_up") return "Напоминание";
-  return "Официант";
+  if (task.type === "follow_up") return "Задача";
+  return "Вызов";
+}
+
+function taskHumanTitle(task: WaiterTask) {
+  if (task.type === "bill_request") return "Гости просят счёт";
+  if (task.type === "waiter_call") return "Гости вызывают официанта";
+  return "Задача по столу";
+}
+
+function taskHumanSubtitle(task: WaiterTask) {
+  if (task.type === "bill_request") return "Гости готовы оплатить заказ.";
+  if (task.type === "waiter_call") return "Гости ждут официанта.";
+  return task.subtitle || "";
 }
 
 function taskStatusLabel(task: WaiterTask) {
@@ -155,14 +166,14 @@ export function WaiterQueueScreen({ navigation, route }: Props) {
 
   if (loading && !data) {
     return (
-      <SafeAreaView style={[styles.safeArea, styles.center]}>
+      <SafeAreaView style={[styles.safeArea, styles.center]} edges={["top"]}>
         <ActivityIndicator color={colors.navy} />
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <FlatList
         data={sortedTasks}
         keyExtractor={(item) => item.id}
@@ -177,15 +188,17 @@ export function WaiterQueueScreen({ navigation, route }: Props) {
             <View style={[styles.taskCard, highlighted && styles.taskCardHighlighted]}>
               <View style={styles.taskHead}>
                 <View style={styles.taskHeadCopy}>
-                  <Text style={styles.taskTitle}>{item.title}</Text>
+                  <Text style={styles.taskTitle}>{taskHumanTitle(item)}</Text>
                   <Text style={styles.taskMeta}>Стол {item.tableId} · {taskTypeLabel(item)} · {taskStatusLabel(item)}</Text>
                 </View>
-                <StatusBadge
-                  status={item.type === "bill_request" ? "bill" : item.priority === "urgent" ? "waiting" : "occupied"}
-                />
+                <View style={styles.requestBadge}>
+                  <Text style={styles.requestBadgeText}>
+                    {item.type === "bill_request" ? "Счёт" : item.type === "waiter_call" ? "Вызов" : "Задача"}
+                  </Text>
+                </View>
               </View>
 
-              {item.subtitle ? <Text style={styles.taskSubtitle}>{item.subtitle}</Text> : null}
+              {taskHumanSubtitle(item) ? <Text style={styles.taskSubtitle}>{taskHumanSubtitle(item)}</Text> : null}
 
               <Text style={styles.taskTiming}>С {formatTime(item.createdAt)} · {formatDurationFrom(item.createdAt, now)}</Text>
               {item.dueAt ? <Text style={styles.taskTiming}>До {formatTime(item.dueAt)}</Text> : null}
@@ -295,6 +308,8 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     backgroundColor: colors.white,
     padding: 12,
+    minHeight: 98,
+    justifyContent: "space-between",
   },
   metricValue: {
     color: colors.navyDeep,
@@ -302,9 +317,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   metricLabel: {
-    marginTop: 4,
+    marginTop: 8,
     color: colors.muted,
     fontSize: 12,
+    minHeight: 32,
   },
   banner: {
     borderRadius: 12,
@@ -360,6 +376,23 @@ const styles = StyleSheet.create({
   taskSubtitle: {
     color: colors.text,
     fontSize: 14,
+  },
+  requestBadge: {
+    minWidth: 60,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#E8D6B5",
+    backgroundColor: "#FFF1DE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  requestBadgeText: {
+    color: "#8A6A33",
+    fontSize: 12,
+    fontWeight: "700",
+    textAlign: "center",
   },
   taskTiming: {
     color: colors.muted,

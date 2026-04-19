@@ -5,53 +5,38 @@ import {
   ActivityIndicator,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
-import { fetchRestaurantData, fetchWaiterShiftSummary, fetchWaiterShortcuts, updateWaiterShortcuts } from "../../api/client";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { fetchWaiterQueue, fetchWaiterShiftSummary } from "../../api/client";
 import type { WaiterTabParamList } from "../../navigation/types";
 import { useWaiterRealtime } from "../../realtime/useWaiterRealtime";
 import { colors } from "../../theme/colors";
 import { formatDurationFrom } from "../../theme/format";
-import type { RestaurantData, WaiterShiftSummary, WaiterShortcuts } from "../../types/domain";
+import type { WaiterQueueResponse, WaiterShiftSummary } from "../../types/domain";
 
 type Props = BottomTabScreenProps<WaiterTabParamList, "WaiterShift">;
 
-const EMPTY_SHORTCUTS: WaiterShortcuts = {
-  favoriteDishIds: [],
-  noteTemplates: [],
-  quickOrderPresets: [],
-};
-
 export function WaiterShiftScreen(_props: Props) {
   const [summary, setSummary] = useState<WaiterShiftSummary | null>(null);
-  const [shortcuts, setShortcuts] = useState<WaiterShortcuts>(EMPTY_SHORTCUTS);
-  const [restaurant, setRestaurant] = useState<RestaurantData | null>(null);
+  const [queue, setQueue] = useState<WaiterQueueResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [errorText, setErrorText] = useState("");
-  const [templateDraft, setTemplateDraft] = useState("");
   const [now, setNow] = useState(Date.now());
 
   const pull = useCallback(async (withLoader = false) => {
     if (withLoader) setLoading(true);
     try {
-      const [nextSummary, nextShortcuts, nextRestaurant] = await Promise.all([
-        fetchWaiterShiftSummary(),
-        fetchWaiterShortcuts(),
-        fetchRestaurantData(),
-      ]);
+      const [nextSummary, nextQueue] = await Promise.all([fetchWaiterShiftSummary(), fetchWaiterQueue()]);
       setSummary(nextSummary);
-      setShortcuts(nextShortcuts);
-      setRestaurant(nextRestaurant);
+      setQueue(nextQueue);
       setErrorText("");
     } catch {
-      setErrorText("Не удалось загрузить смену.");
+      setErrorText("Не удалось загрузить аналитику смены.");
     } finally {
       if (withLoader) setLoading(false);
     }
@@ -81,47 +66,28 @@ export function WaiterShiftScreen(_props: Props) {
     setRefreshing(false);
   };
 
-  const favoriteNames = useMemo(() => {
-    const dishes = restaurant?.dishes ?? [];
-    return shortcuts.favoriteDishIds
-      .map((dishId) => dishes.find((dish) => dish.id === dishId))
-      .filter((dish): dish is NonNullable<typeof dish> => !!dish)
-      .map((dish) => dish.nameRu);
-  }, [restaurant?.dishes, shortcuts.favoriteDishIds]);
+  const chartData = useMemo(() => {
+    if (!summary || !queue) return [];
+    return [
+      { label: "Вызовы", value: queue.tasks.length },
+      { label: "Срочные", value: queue.summary.urgentCount },
+      { label: "Закрыто задач", value: summary.tasksHandled },
+      { label: "Обслужено", value: summary.serviceCompletedCount },
+    ];
+  }, [queue, summary]);
 
-  const saveShortcuts = async (next: WaiterShortcuts) => {
-    setSaving(true);
-    try {
-      const saved = await updateWaiterShortcuts(next);
-      setShortcuts(saved);
-      setErrorText("");
-    } catch {
-      setErrorText("Не удалось сохранить.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const addTemplate = async () => {
-    const nextTemplate = templateDraft.trim();
-    if (!nextTemplate) return;
-    await saveShortcuts({
-      ...shortcuts,
-      noteTemplates: [...shortcuts.noteTemplates, nextTemplate],
-    });
-    setTemplateDraft("");
-  };
+  const maxChartValue = Math.max(1, ...chartData.map((item) => item.value));
 
   if (loading && !summary) {
     return (
-      <SafeAreaView style={[styles.safeArea, styles.center]}>
+      <SafeAreaView style={[styles.safeArea, styles.center]} edges={["top"]}>
         <ActivityIndicator color={colors.navy} />
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -162,90 +128,39 @@ export function WaiterShiftScreen(_props: Props) {
         ) : null}
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Избранное</Text>
-          {favoriteNames.length > 0 ? (
-            <View style={styles.chipsRow}>
-              {favoriteNames.map((dishName) => (
-                <View key={dishName} style={styles.chip}>
-                  <Text style={styles.chipText}>{dishName}</Text>
+          <Text style={styles.cardTitle}>Нагрузка по смене</Text>
+          {chartData.map((item) => {
+            const percent = Math.round((item.value / maxChartValue) * 100);
+            return (
+              <View key={item.label} style={styles.chartRow}>
+                <View style={styles.chartRowHead}>
+                  <Text style={styles.chartLabel}>{item.label}</Text>
+                  <Text style={styles.chartValue}>{item.value}</Text>
                 </View>
-              ))}
-            </View>
-          ) : (
-            <Text style={styles.helperText}>Пусто</Text>
-          )}
+                <View style={styles.chartTrack}>
+                  <View style={[styles.chartFill, { width: `${percent}%` }]} />
+                </View>
+              </View>
+            );
+          })}
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Шаблоны заметок</Text>
-          <View style={styles.templateComposer}>
-            <TextInput
-              value={templateDraft}
-              onChangeText={setTemplateDraft}
-              placeholder="Новый шаблон"
-              placeholderTextColor="#8A847A"
-              style={styles.input}
-            />
-            <Pressable
-              style={[styles.primaryButton, saving && styles.buttonDisabled]}
-              disabled={saving}
-              onPress={() => void addTemplate()}
-            >
-              <Text style={styles.primaryButtonText}>{saving ? "..." : "Добавить"}</Text>
-            </Pressable>
+          <Text style={styles.cardTitle}>Состояние очереди</Text>
+          <View style={styles.queueStatsRow}>
+            <View style={styles.queueStatBox}>
+              <Text style={styles.queueStatValue}>{queue?.summary.inProgressCount ?? 0}</Text>
+              <Text style={styles.queueStatLabel}>В работе</Text>
+            </View>
+            <View style={styles.queueStatBox}>
+              <Text style={styles.queueStatValue}>{queue?.summary.urgentCount ?? 0}</Text>
+              <Text style={styles.queueStatLabel}>Срочные</Text>
+            </View>
+            <View style={styles.queueStatBox}>
+              <Text style={styles.queueStatValue}>{queue?.tasks.length ?? 0}</Text>
+              <Text style={styles.queueStatLabel}>Всего задач</Text>
+            </View>
           </View>
-
-          {shortcuts.noteTemplates.length > 0 ? (
-            <View style={styles.templateList}>
-              {shortcuts.noteTemplates.map((template) => (
-                <View key={template} style={styles.templateRow}>
-                  <Text style={styles.templateText}>{template}</Text>
-                  <Pressable
-                    style={styles.secondaryButton}
-                    onPress={() =>
-                      void saveShortcuts({
-                        ...shortcuts,
-                        noteTemplates: shortcuts.noteTemplates.filter((item) => item !== template),
-                      })
-                    }
-                  >
-                    <Text style={styles.secondaryButtonText}>Удалить</Text>
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          ) : (
-            <Text style={styles.helperText}>Пусто</Text>
-          )}
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Быстрые наборы</Text>
-          {shortcuts.quickOrderPresets.length > 0 ? (
-            <View style={styles.templateList}>
-              {shortcuts.quickOrderPresets.map((preset) => (
-                <View key={preset.id} style={styles.templateRow}>
-                  <View style={styles.templateCopy}>
-                    <Text style={styles.templateText}>{preset.title}</Text>
-                    <Text style={styles.helperText}>{preset.items.length} поз.</Text>
-                  </View>
-                  <Pressable
-                    style={styles.secondaryButton}
-                    onPress={() =>
-                      void saveShortcuts({
-                        ...shortcuts,
-                        quickOrderPresets: shortcuts.quickOrderPresets.filter((item) => item.id !== preset.id),
-                      })
-                    }
-                  >
-                    <Text style={styles.secondaryButtonText}>Удалить</Text>
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-          ) : (
-            <Text style={styles.helperText}>Пусто</Text>
-          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -328,91 +243,64 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     backgroundColor: colors.white,
     padding: 14,
-    gap: 10,
+    gap: 12,
   },
   cardTitle: {
     color: colors.navyDeep,
     fontSize: 18,
     fontWeight: "700",
   },
-  chipsRow: {
+  chartRow: {
+    gap: 6,
+  },
+  chartRowHead: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  chip: {
-    borderRadius: 999,
-    backgroundColor: "#F6ECE0",
-    borderWidth: 1,
-    borderColor: "#E8D6B5",
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  chipText: {
-    color: "#8A6A33",
+  chartLabel: {
+    color: colors.text,
+    fontSize: 13,
     fontWeight: "600",
-    fontSize: 12,
   },
-  helperText: {
-    color: colors.muted,
-    fontSize: 12,
+  chartValue: {
+    color: colors.navy,
+    fontWeight: "700",
+    fontSize: 13,
   },
-  templateComposer: {
+  chartTrack: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: "#ECE8E0",
+    overflow: "hidden",
+  },
+  chartFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: colors.navy,
+  },
+  queueStatsRow: {
     flexDirection: "row",
     gap: 8,
   },
-  input: {
+  queueStatBox: {
     flex: 1,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.line,
-    borderRadius: 12,
-    backgroundColor: colors.white,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: colors.text,
-  },
-  primaryButton: {
-    borderRadius: 12,
-    backgroundColor: colors.navy,
+    backgroundColor: "#FFFDF8",
+    padding: 10,
     alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 14,
+    gap: 4,
   },
-  primaryButtonText: {
-    color: colors.white,
+  queueStatValue: {
+    color: colors.navyDeep,
+    fontSize: 20,
     fontWeight: "700",
   },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  templateList: {
-    gap: 10,
-  },
-  templateRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 10,
-    alignItems: "center",
-  },
-  templateCopy: {
-    flex: 1,
-  },
-  templateText: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  secondaryButton: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.white,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  secondaryButtonText: {
-    color: colors.navy,
-    fontWeight: "600",
-    fontSize: 12,
+  queueStatLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    textAlign: "center",
   },
 });

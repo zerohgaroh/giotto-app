@@ -7,11 +7,11 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchWaiterTables } from "../../api/client";
 import type { WaiterStackParamList, WaiterTabParamList } from "../../navigation/types";
 import { StatusBadge } from "../../components/StatusBadge";
@@ -79,7 +79,7 @@ export function WaiterHomeScreen({ navigation }: Props) {
   const sortedTables = useMemo(() => sortWaiterTables(data?.tables ?? []), [data?.tables]);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.header}>
         <View>
           <Text style={styles.label}>Официант</Text>
