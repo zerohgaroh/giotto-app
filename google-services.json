@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "55400951927",
+    "project_id": "giotto-42a8c",
+    "storage_bucket": "giotto-42a8c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:55400951927:android:1f4af9242930961cedd672",
+        "android_client_info": {
+          "package_name": "uz.unqm.giottostaff"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCxVe-sOj21BgHPpdbkn1U3c_9V59uxUvY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

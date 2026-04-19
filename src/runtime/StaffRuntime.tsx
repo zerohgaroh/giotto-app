@@ -94,9 +94,12 @@ async function registerForPush(): Promise<PushDeviceRegistration | null> {
   const projectId =
     Constants.easConfig?.projectId ??
     (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId;
-  const tokenResponse = projectId
-    ? await Notifications.getExpoPushTokenAsync({ projectId })
-    : await Notifications.getExpoPushTokenAsync();
+  if (!projectId) {
+    throw new Error(
+      "Missing Expo projectId for push registration. Set EXPO_PUBLIC_EAS_PROJECT_ID and rebuild the app.",
+    );
+  }
+  const tokenResponse = await Notifications.getExpoPushTokenAsync({ projectId });
 
   return {
     token: tokenResponse.data,
@@ -225,8 +228,8 @@ export function StaffRuntime() {
       const payload = await registerForPush();
       if (!payload) return;
       await registerPushToken(payload);
-    } catch {
-      // Push registration should not block the waiter session.
+    } catch (error) {
+      console.warn("[push] Failed to register device for remote notifications", error);
     }
   }, [session]);
 
