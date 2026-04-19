@@ -28,6 +28,8 @@ const ALERT_DEDUPE_MS = 6_000;
 const ALERT_VISIBLE_MS = 4_500;
 const PUSH_RESYNC_INTERVAL_MS = 60_000;
 const VIBRATION_PATTERN = Platform.OS === "android" ? [0, 180, 120, 220] : 350;
+const NOTIFICATION_CHANNEL_ID = "giotto-service-alerts";
+const FOREGROUND_SIGNAL_FLAG = "__giottoForegroundSignal";
 
 const isExpoGo = Constants.appOwnership === "expo";
 
@@ -38,14 +40,15 @@ async function setupNotifications(appStateRef: { current: AppStateStatus }) {
   }
 
   Notifications.setNotificationHandler({
-    handleNotification: async () => {
+    handleNotification: async (notification) => {
       const isActive = appStateRef.current === "active";
+      const isForegroundSignal = notification.request.content.data?.[FOREGROUND_SIGNAL_FLAG] === true;
       return {
-        shouldShowAlert: !isActive,
-        shouldPlaySound: !isActive,
+        shouldShowAlert: !isActive || isForegroundSignal,
+        shouldPlaySound: !isActive || isForegroundSignal,
         shouldSetBadge: false,
-        shouldShowBanner: !isActive,
-        shouldShowList: !isActive,
+        shouldShowBanner: !isActive || isForegroundSignal,
+        shouldShowList: !isActive || isForegroundSignal,
       };
     },
   });
@@ -150,9 +153,11 @@ export function StaffRuntime() {
           body: alert.message,
           sound: "default",
           data: {
+            [FOREGROUND_SIGNAL_FLAG]: true,
             tableId: alert.tableId,
             requestType: alert.requestType,
           },
+          ...(Platform.OS === "android" ? { channelId: NOTIFICATION_CHANNEL_ID } : {}),
         },
         trigger: null,
       });
@@ -243,12 +248,14 @@ export function StaffRuntime() {
     if (Platform.OS === "android") {
       void (async () => {
         if (!Notifications) Notifications = await import("expo-notifications");
-        await Notifications.setNotificationChannelAsync("default", {
+        await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNEL_ID, {
           name: "Giotto service alerts",
           importance: Notifications.AndroidImportance.MAX,
           vibrationPattern: [0, 180, 120, 220],
           enableVibrate: true,
           sound: "default",
+          bypassDnd: false,
+          showBadge: true,
           lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
         });
       })();

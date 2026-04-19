@@ -1,7 +1,7 @@
 import { Image, StyleSheet, Text, View } from "react-native";
 import { colors } from "../theme/colors";
 
-const logo = require("../../assets/brand-logo.png");
+const logo = require("../../assets/brand-logo-clean.png");
 
 export function BrandHeaderTitle() {
   return (
