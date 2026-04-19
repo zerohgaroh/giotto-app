@@ -9,6 +9,7 @@ dist/
 web-build/
 expo-env.d.ts
 build
+.gradle-user-home
 # Native
 .kotlin/
 *.orig.*
