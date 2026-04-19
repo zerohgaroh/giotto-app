@@ -21,6 +21,7 @@ import {
 import { colors } from "../../theme/colors";
 import { formatPrice } from "../../theme/format";
 import type { Dish, RestaurantData } from "../../types/domain";
+import { getOptimizedMenuImageUrl } from "../../utils/menuImage";
 import { shouldExitWaiterTableFlow } from "./waiterAccessGuard";
 
 type Props = NativeStackScreenProps<WaiterStackParamList, "WaiterAddOrder">;
@@ -187,7 +188,11 @@ export function WaiterAddOrderScreen({ navigation, route }: Props) {
           const qty = qtyMap[item.id] || 0;
           return (
             <View style={styles.card}>
-              <Image source={{ uri: item.image }} style={styles.image} resizeMode="cover" />
+              <Image
+                source={{ uri: getOptimizedMenuImageUrl(item.image, 640) }}
+                style={styles.image}
+                resizeMode="cover"
+              />
               <View style={styles.cardBody}>
                 <Text numberOfLines={2} style={styles.cardTitle}>
                   {item.nameRu}
