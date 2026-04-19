@@ -26,6 +26,7 @@ import {
 import { colors } from "../../theme/colors";
 import { formatPrice } from "../../theme/format";
 import type { Dish, RestaurantData, WaiterQuickOrderPreset, WaiterShortcuts } from "../../types/domain";
+import { getOptimizedMenuImageUrl } from "../../utils/menuImage";
 import { shouldExitWaiterTableFlow } from "./waiterAccessGuard";
 
 type Props = NativeStackScreenProps<WaiterStackParamList, "WaiterAddOrder">;
@@ -312,7 +313,11 @@ export function WaiterAddOrderScreen({ navigation, route }: Props) {
           const isFavorite = shortcuts?.favoriteDishIds.includes(item.id) ?? false;
           return (
             <View style={styles.card}>
-              <Image source={{ uri: item.image }} style={styles.image} resizeMode="cover" />
+              <Image
+                source={{ uri: getOptimizedMenuImageUrl(item.image, 640) }}
+                style={styles.image}
+                resizeMode="cover"
+              />
               <View style={styles.cardHead}>
                 <Text numberOfLines={2} style={styles.cardTitle}>
                   {item.nameRu}

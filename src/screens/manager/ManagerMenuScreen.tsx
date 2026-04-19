@@ -32,6 +32,7 @@ import { useStaffRealtime } from "../../realtime/useStaffRealtime";
 import { colors } from "../../theme/colors";
 import { formatPrice } from "../../theme/format";
 import type { Dish, ManagerMenuSnapshot, MenuCategory, MenuImageDraftState } from "../../types/domain";
+import { getOptimizedMenuImageUrl } from "../../utils/menuImage";
 import {
   BADGE_TONE_OPTIONS,
   countDishesByCategory,
@@ -579,7 +580,11 @@ export function ManagerMenuScreen() {
           >
             <View style={styles.categoryCover}>
               {cover ? (
-                <Image source={{ uri: cover }} style={styles.categoryCoverImage} resizeMode="cover" />
+                <Image
+                  source={{ uri: getOptimizedMenuImageUrl(cover, 512) }}
+                  style={styles.categoryCoverImage}
+                  resizeMode="cover"
+                />
               ) : (
                 <Ionicons name="restaurant-outline" size={28} color={colors.navy} />
               )}
@@ -660,7 +665,11 @@ export function ManagerMenuScreen() {
         {categoryDishes.map((dish) => (
           <View key={dish.id} style={styles.dishCard}>
             <View style={styles.dishTopRow}>
-              <Image source={{ uri: dish.image }} style={styles.dishImage} resizeMode="cover" />
+              <Image
+                source={{ uri: getOptimizedMenuImageUrl(dish.image, 512) }}
+                style={styles.dishImage}
+                resizeMode="cover"
+              />
 
               <View style={styles.dishTopContent}>
                 <View style={styles.dishTitleRow}>
