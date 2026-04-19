@@ -5,11 +5,11 @@
     "scheme": "giottostaff",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/brand-logo-clean.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/brand-logo-clean.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -18,7 +18,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/brand-logo-clean.png",
         "backgroundColor": "#ffffff"
       },
       "permissions": [
@@ -34,13 +34,13 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png",
+          "icon": "./assets/brand-logo-clean.png",
           "color": "#0D2B6B"
         }
       ]
     ],
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/brand-logo-clean.png"
     }
   }
 }
