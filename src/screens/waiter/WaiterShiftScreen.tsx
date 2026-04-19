@@ -1,4 +1,5 @@
 import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
+import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -67,6 +68,12 @@ export function WaiterShiftScreen(_props: Props) {
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [pull]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void pull(false);
+    }, [pull]),
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);

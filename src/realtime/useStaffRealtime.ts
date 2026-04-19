@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { AppState, type AppStateStatus } from "react-native";
+import { useEffect, useRef, useState } from "react";
 import EventSource, { type CustomEvent, type ErrorEvent, type ExceptionEvent, type TimeoutEvent } from "react-native-sse";
 import { API_BASE_URL, getAccessToken, subscribeAccessToken } from "../api/client";
 import type { RealtimeEvent } from "../types/domain";
@@ -33,8 +34,30 @@ export function useStaffRealtime(onEvent: (event: RealtimeEvent) => void) {
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(true);
   const [token, setToken] = useState<string | null>(() => getAccessToken());
+  const [reconnectNonce, setReconnectNonce] = useState(0);
+  const onEventRef = useRef(onEvent);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  }, [onEvent]);
 
   useEffect(() => subscribeAccessToken(setToken), []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      const previous = appStateRef.current;
+      appStateRef.current = nextState;
+
+      if ((previous === "background" || previous === "inactive") && nextState === "active") {
+        setReconnectNonce((current) => current + 1);
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (!token) {
@@ -71,7 +94,7 @@ export function useStaffRealtime(onEvent: (event: RealtimeEvent) => void) {
       source.addEventListener(eventName, (event: CustomEvent<typeof eventName>) => {
         if (!event.data) return;
         try {
-          onEvent(JSON.parse(event.data) as RealtimeEvent);
+          onEventRef.current(JSON.parse(event.data) as RealtimeEvent);
         } catch {
           // ignore malformed payloads
         }
@@ -84,7 +107,7 @@ export function useStaffRealtime(onEvent: (event: RealtimeEvent) => void) {
       source.removeAllEventListeners();
       source.close();
     };
-  }, [onEvent, token]);
+  }, [token, reconnectNonce]);
 
   return { connected, connecting };
 }

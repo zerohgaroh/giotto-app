@@ -1,4 +1,5 @@
 import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
+import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -19,6 +20,7 @@ import { createMutationKey } from "../../runtime/waiterDrafts";
 import { colors } from "../../theme/colors";
 import { formatDurationFrom, formatTime } from "../../theme/format";
 import type { WaiterQueueResponse, WaiterTask } from "../../types/domain";
+import { sortWaiterQueueTasks } from "./attentionSort";
 
 type Props = BottomTabScreenProps<WaiterTabParamList, "WaiterQueue">;
 
@@ -47,6 +49,10 @@ export function WaiterQueueScreen({ navigation, route }: Props) {
 
   const highlightTableId = route.params?.highlightTableId;
   const stackNavigation = navigation.getParent<NativeStackNavigationProp<WaiterStackParamList>>();
+  const sortedTasks = useMemo(
+    () => sortWaiterQueueTasks(data?.tasks ?? [], highlightTableId),
+    [data?.tasks, highlightTableId],
+  );
 
   const pull = useCallback(async (withLoader = false) => {
     if (withLoader) setLoading(true);
@@ -72,6 +78,12 @@ export function WaiterQueueScreen({ navigation, route }: Props) {
     const timer = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(timer);
   }, [pull]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void pull(false);
+    }, [pull]),
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -152,7 +164,7 @@ export function WaiterQueueScreen({ navigation, route }: Props) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <FlatList
-        data={data?.tasks ?? []}
+        data={sortedTasks}
         keyExtractor={(item) => item.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListHeaderComponent={header}

@@ -1,4 +1,5 @@
 import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
+import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -19,6 +20,7 @@ import { useWaiterRealtime } from "../../realtime/useWaiterRealtime";
 import { colors } from "../../theme/colors";
 import { formatDurationFrom } from "../../theme/format";
 import type { WaiterTablesResponse } from "../../types/domain";
+import { sortWaiterTables } from "./attentionSort";
 
 type Props = BottomTabScreenProps<WaiterTabParamList, "WaiterTables">;
 
@@ -58,6 +60,12 @@ export function WaiterHomeScreen({ navigation }: Props) {
     };
   }, [pull]);
 
+  useFocusEffect(
+    useCallback(() => {
+      void pull(false);
+    }, [pull]),
+  );
+
   const onRefresh = async () => {
     setRefreshing(true);
     await pull(false);
@@ -68,6 +76,7 @@ export function WaiterHomeScreen({ navigation }: Props) {
     () => data?.tables.filter((table) => table.activeRequest).length ?? 0,
     [data?.tables],
   );
+  const sortedTables = useMemo(() => sortWaiterTables(data?.tables ?? []), [data?.tables]);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -94,7 +103,7 @@ export function WaiterHomeScreen({ navigation }: Props) {
         </View>
       ) : (
         <FlatList
-          data={data?.tables || []}
+          data={sortedTables}
           keyExtractor={(item) => String(item.tableId)}
           numColumns={2}
           columnWrapperStyle={styles.row}
