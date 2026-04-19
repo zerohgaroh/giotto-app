@@ -117,19 +117,26 @@ export function ManagerHallScreen() {
         </View>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-        {FILTERS.map((item) => (
-          <Pressable
-            key={item.id}
-            style={[styles.filterChip, filter === item.id ? styles.filterChipActive : null]}
-            onPress={() => setFilter(item.id)}
-          >
-            <Text style={[styles.filterChipText, filter === item.id ? styles.filterChipTextActive : null]}>
-              {item.label}
-            </Text>
-          </Pressable>
-        ))}
-      </ScrollView>
+      <View style={styles.filterSection}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+          style={styles.filterScroller}
+        >
+          {FILTERS.map((item) => (
+            <Pressable
+              key={item.id}
+              style={[styles.filterChip, filter === item.id ? styles.filterChipActive : null]}
+              onPress={() => setFilter(item.id)}
+            >
+              <Text style={[styles.filterChipText, filter === item.id ? styles.filterChipTextActive : null]}>
+                {item.label}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
 
       {!connected && !connecting ? (
         <View style={styles.banner}>
@@ -264,12 +271,19 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 16,
     paddingTop: 14,
-    paddingBottom: 4,
+    paddingBottom: 6,
+    paddingRight: 24,
     alignItems: "center",
   },
+  filterSection: {
+    marginBottom: 8,
+  },
+  filterScroller: {
+    flexGrow: 0,
+  },
   filterChip: {
-    minWidth: 88,
-    minHeight: 42,
+    minWidth: 96,
+    minHeight: 44,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: colors.line,
@@ -287,6 +301,9 @@ const styles = StyleSheet.create({
     color: colors.navy,
     fontWeight: "700",
     fontSize: 14,
+    lineHeight: 18,
+    textAlign: "center",
+    includeFontPadding: false,
   },
   filterChipTextActive: {
     color: colors.white,
@@ -317,7 +334,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: 12,
-    paddingTop: 12,
+    paddingTop: 8,
     paddingBottom: 24,
     gap: 8,
   },

@@ -129,16 +129,23 @@ export function ManagerHistoryScreen() {
         <Text style={styles.title}>История</Text>
       </View>
 
-      <View style={styles.filterRow}>
-        {FILTERS.map((item) => (
-          <Pressable
-            key={item.id}
-            style={[styles.filterChip, filter === item.id && styles.filterChipActive]}
-            onPress={() => setFilter(item.id)}
-          >
-            <Text style={[styles.filterText, filter === item.id && styles.filterTextActive]}>{item.label}</Text>
-          </Pressable>
-        ))}
+      <View style={styles.filterSection}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+          style={styles.filterScroller}
+        >
+          {FILTERS.map((item) => (
+            <Pressable
+              key={item.id}
+              style={[styles.filterChip, filter === item.id && styles.filterChipActive]}
+              onPress={() => setFilter(item.id)}
+            >
+              <Text style={[styles.filterText, filter === item.id && styles.filterTextActive]}>{item.label}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
       </View>
 
       {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
@@ -174,19 +181,27 @@ const styles = StyleSheet.create({
     color: colors.navyDeep,
   },
   filterRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
     gap: 8,
     paddingHorizontal: 16,
-    marginTop: 12,
+    paddingTop: 12,
+    paddingBottom: 6,
+    paddingRight: 24,
+    alignItems: "center",
+  },
+  filterSection: {
+    marginBottom: 8,
+  },
+  filterScroller: {
+    flexGrow: 0,
   },
   filterChip: {
+    minHeight: 44,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: colors.line,
     backgroundColor: colors.white,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
   filterChipActive: {
     borderColor: colors.navy,
@@ -194,8 +209,11 @@ const styles = StyleSheet.create({
   },
   filterText: {
     color: colors.navy,
-    fontWeight: "600",
-    fontSize: 12,
+    fontWeight: "700",
+    fontSize: 14,
+    lineHeight: 18,
+    textAlign: "center",
+    includeFontPadding: false,
   },
   filterTextActive: {
     color: colors.white,
@@ -207,6 +225,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
+    paddingTop: 8,
     gap: 12,
   },
   card: {

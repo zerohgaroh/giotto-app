@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Pressable, StyleSheet, Text } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BrandHeaderTitle } from "../components/BrandHeaderTitle";
 import { useAuth } from "../context/AuthContext";
 import { ManagerHallScreen } from "../screens/manager/ManagerHallScreen";
@@ -24,6 +25,8 @@ function LogoutButton() {
 }
 
 export function ManagerTabsNavigator() {
+  const insets = useSafeAreaInsets();
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -36,8 +39,9 @@ export function ManagerTabsNavigator() {
         tabBarInactiveTintColor: "#8A847A",
         tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
         tabBarStyle: {
-          height: 64,
+          height: 60 + Math.max(insets.bottom, 8),
           paddingTop: 6,
+          paddingBottom: Math.max(insets.bottom, 8),
           backgroundColor: "#FFFDF8",
         },
         tabBarIcon: ({ color, size }) => {
