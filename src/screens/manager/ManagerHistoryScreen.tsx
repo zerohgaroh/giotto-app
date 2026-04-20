@@ -39,6 +39,10 @@ function eventLabel(item: ManagerHistoryEntry) {
       return "Обновили задачу";
     case "task:completed":
       return "Задача закрыта";
+    case "restaurant:updated":
+      return "Обновили ресторан";
+    case "shift:summary_changed":
+      return "Обновили сводку смены";
     default:
       return item.type;
   }
