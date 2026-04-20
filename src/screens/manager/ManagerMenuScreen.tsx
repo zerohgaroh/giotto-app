@@ -255,7 +255,9 @@ export function ManagerMenuScreen() {
     useCallback(
       (event) => {
         if (event.type === "menu:changed") {
-          void pull();
+          void pull().catch(() => {
+            setErrorText("Не удалось обновить меню.");
+          });
         }
       },
       [pull],

@@ -231,7 +231,9 @@ export function ManagerLayoutScreen() {
           event.type === "table:archived" ||
           event.type === "table:restored"
         ) {
-          void pull();
+          void pull().catch(() => {
+            setErrorText("Не удалось обновить план.");
+          });
         }
       },
       [pull],

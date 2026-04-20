@@ -30,7 +30,7 @@ export { getAccessToken, setAccessToken, subscribeAccessToken } from "./accessTo
 
 const DEFAULT_PORT = "3000";
 const REFRESH_TOKEN_KEY = "giotto.mobile.refreshToken.v2";
-const REQUEST_TIMEOUT_MS = 15000;
+const REQUEST_TIMEOUT_MS = 25000;
 
 let refreshInFlight: Promise<StaffLoginResponse | null> | null = null;
 
@@ -157,6 +157,10 @@ async function clearRefreshToken() {
   await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function persistAuth(response: StaffLoginResponse) {
   setAccessToken(response.accessToken);
   await writeRefreshToken(response.refreshToken);
@@ -261,13 +265,27 @@ export async function bootstrapStaffSession() {
 }
 
 export async function loginStaff(login: string, password: string) {
-  const response = await rawRequest<StaffLoginResponse>("/api/staff/auth/login", {
+  const payload = {
     method: "POST",
     auth: false,
     body: JSON.stringify({ login, password }),
-  });
-  await persistAuth(response);
-  return response;
+  } as const;
+
+  try {
+    const response = await rawRequest<StaffLoginResponse>("/api/staff/auth/login", payload);
+    await persistAuth(response);
+    return response;
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.code !== "network") {
+      throw error;
+    }
+
+    // Mobile networks can briefly drop the very first request after app wake/start.
+    await sleep(700);
+    const response = await rawRequest<StaffLoginResponse>("/api/staff/auth/login", payload);
+    await persistAuth(response);
+    return response;
+  }
 }
 
 export async function logoutStaff() {

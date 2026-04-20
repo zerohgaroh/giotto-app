@@ -81,7 +81,9 @@ export function ManagerTeamScreen() {
 
   useStaffRealtime(
     useCallback(() => {
-      void pull();
+      void pull().catch(() => {
+        setErrorText("Не удалось обновить список.");
+      });
     }, [pull]),
   );
 

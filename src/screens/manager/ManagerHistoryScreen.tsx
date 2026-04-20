@@ -83,7 +83,9 @@ export function ManagerHistoryScreen() {
 
   useStaffRealtime(
     useCallback(() => {
-      void pull();
+      void pull().catch(() => {
+        setErrorText("Не удалось обновить историю.");
+      });
     }, [pull]),
   );
 
