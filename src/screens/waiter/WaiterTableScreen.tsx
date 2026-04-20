@@ -11,7 +11,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   completeWaiterTask,
   fetchWaiterShortcuts,
@@ -72,6 +72,7 @@ function timelineLabel(entry: WaiterTableTimelineEntry) {
 
 export function WaiterTableScreen({ navigation, route }: Props) {
   const tableId = route.params.tableId;
+  const insets = useSafeAreaInsets();
   const [data, setData] = useState<WaiterTableDetailResponse | null>(null);
   const [shortcuts, setShortcuts] = useState<WaiterShortcuts | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
@@ -192,6 +193,7 @@ export function WaiterTableScreen({ navigation, route }: Props) {
   const visibleTasks = useMemo(() => getVisibleWaiterTasks(data?.tasks ?? []), [data?.tasks]);
   const isFreeTable = !data || data.table.status === "free" || !data.table.hasActiveSession;
   const canFinish = canFinishWaiterTable(data);
+  const contentBottomInset = canFinish ? 126 + Math.max(insets.bottom, 12) : 24 + Math.max(insets.bottom, 12);
 
   const onCompleteTask = async (taskId: string) => {
     setTaskBusyId(taskId);
@@ -266,7 +268,7 @@ export function WaiterTableScreen({ navigation, route }: Props) {
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: contentBottomInset }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <View style={styles.topBar}>
@@ -442,7 +444,7 @@ export function WaiterTableScreen({ navigation, route }: Props) {
         ) : null}
       </ScrollView>
 
-      {canFinish ? <View style={styles.bottomBar}>
+      {canFinish ? <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) + 6 }]}>
         <Pressable
           disabled={finishBusy}
           style={[styles.doneButton, finishBusy && styles.doneButtonDisabled]}
@@ -466,7 +468,6 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 110,
     gap: 12,
   },
   topBar: {
