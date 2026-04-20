@@ -223,11 +223,15 @@ export function ManagerTeamScreen() {
       <Modal visible={editorOpen} animationType="slide" onRequestClose={() => setEditorOpen(false)}>
         <SafeAreaView style={styles.modalArea} edges={["top"]}>
           <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
+            behavior={Platform.OS === "ios" ? "padding" : "padding"}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 18}
             style={styles.flex}
           >
-            <ScrollView contentContainerStyle={styles.modalContent} keyboardShouldPersistTaps="handled">
+            <ScrollView
+              contentContainerStyle={[styles.modalContent, styles.modalContentGrow]}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
               <Text style={styles.modalTitle}>{editor.waiterId ? "Официант" : "Новый официант"}</Text>
 
               <View style={styles.fieldGroup}>
@@ -334,11 +338,15 @@ export function ManagerTeamScreen() {
       <Modal visible={!!passwordResetFor} animationType="slide" onRequestClose={() => setPasswordResetFor(null)}>
         <SafeAreaView style={styles.modalArea} edges={["top"]}>
           <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : "height"}
-            keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
+            behavior={Platform.OS === "ios" ? "padding" : "padding"}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 18}
             style={styles.flex}
           >
-            <ScrollView contentContainerStyle={styles.modalContent} keyboardShouldPersistTaps="handled">
+            <ScrollView
+              contentContainerStyle={[styles.modalContent, styles.modalContentGrow]}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
               <Text style={styles.modalTitle}>Новый пароль</Text>
               <Text style={styles.cardMeta}>{passwordResetFor?.name}</Text>
 
@@ -510,6 +518,9 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 40,
     gap: 12,
+  },
+  modalContentGrow: {
+    flexGrow: 1,
   },
   modalTitle: {
     fontSize: 24,

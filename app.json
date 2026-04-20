@@ -21,6 +21,7 @@
         "foregroundImage": "./assets/brand-logo-clean.png",
         "backgroundColor": "#ffffff"
       },
+      "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "POST_NOTIFICATIONS",
         "VIBRATE"
