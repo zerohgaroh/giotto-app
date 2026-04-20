@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -24,11 +26,22 @@ export function LoginScreen() {
   const { width, height } = useWindowDimensions();
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [errorText, setErrorText] = useState("");
   const [loading, setLoading] = useState(false);
 
   const isWide = width >= 980;
   const isCompactHeight = height < 760;
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener("keyboardDidShow", () => setKeyboardOpen(true));
+    const hideSubscription = Keyboard.addListener("keyboardDidHide", () => setKeyboardOpen(false));
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
 
   const submit = async () => {
     if (loading) return;
@@ -57,14 +70,20 @@ export function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flex}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 24}
+        style={styles.flex}
+      >
         <ScrollView
           contentContainerStyle={[
             styles.scrollContent,
             isWide ? styles.scrollContentWide : null,
             isCompactHeight ? styles.scrollContentCompact : null,
+            keyboardOpen ? styles.scrollContentKeyboardOpen : null,
           ]}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           <View style={[styles.shell, isWide ? styles.shellWide : null]}>
             {isWide ? (
@@ -106,14 +125,24 @@ export function LoginScreen() {
                 />
 
                 <Text style={[styles.fieldLabel, styles.topGap]}>Пароль</Text>
-                <TextInput
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry
-                  placeholder="Введите пароль"
-                  placeholderTextColor="#8A847A"
-                  style={styles.input}
-                />
+                <View style={styles.passwordInputWrap}>
+                  <TextInput
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!passwordVisible}
+                    placeholder="Введите пароль"
+                    placeholderTextColor="#8A847A"
+                    style={[styles.input, styles.passwordInput]}
+                  />
+                  <Pressable
+                    accessibilityLabel={passwordVisible ? "Скрыть пароль" : "Показать пароль"}
+                    hitSlop={10}
+                    style={styles.eyeButton}
+                    onPress={() => setPasswordVisible((visible) => !visible)}
+                  >
+                    <Ionicons name={passwordVisible ? "eye-off-outline" : "eye-outline"} size={22} color={colors.navy} />
+                  </Pressable>
+                </View>
               </View>
 
               {errorText ? <Text style={styles.error}>{errorText}</Text> : null}
@@ -155,6 +184,11 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
     paddingTop: 20,
     paddingBottom: 20,
+  },
+  scrollContentKeyboardOpen: {
+    justifyContent: "flex-start",
+    paddingTop: 20,
+    paddingBottom: 24,
   },
   shell: {
     width: "100%",
@@ -300,6 +334,20 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
     color: colors.text,
+  },
+  passwordInputWrap: {
+    position: "relative",
+  },
+  passwordInput: {
+    paddingRight: 50,
+  },
+  eyeButton: {
+    position: "absolute",
+    right: 14,
+    top: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
   },
   error: {
     marginTop: 14,
