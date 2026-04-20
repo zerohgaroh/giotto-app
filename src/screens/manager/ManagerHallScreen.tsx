@@ -6,13 +6,13 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchManagerHall } from "../../api/client";
 import { StatusBadge } from "../../components/StatusBadge";
 import type { ManagerStackParamList } from "../../navigation/types";
@@ -92,14 +92,14 @@ export function ManagerHallScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.safeArea, styles.center]}>
+      <SafeAreaView style={[styles.safeArea, styles.center]} edges={["top"]}>
         <ActivityIndicator color={colors.navy} />
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.header}>
         <Text style={styles.title}>Зал</Text>
       </View>

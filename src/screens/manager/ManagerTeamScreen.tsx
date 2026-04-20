@@ -6,7 +6,6 @@ import {
   Platform,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Switch,
@@ -14,6 +13,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   createManagerWaiter,
   fetchManagerHall,
@@ -169,7 +169,7 @@ export function ManagerTeamScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -219,7 +219,7 @@ export function ManagerTeamScreen() {
       </ScrollView>
 
       <Modal visible={editorOpen} animationType="slide" onRequestClose={() => setEditorOpen(false)}>
-        <SafeAreaView style={styles.modalArea}>
+        <SafeAreaView style={styles.modalArea} edges={["top"]}>
           <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : "height"}
             keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
@@ -330,7 +330,7 @@ export function ManagerTeamScreen() {
       </Modal>
 
       <Modal visible={!!passwordResetFor} animationType="slide" onRequestClose={() => setPasswordResetFor(null)}>
-        <SafeAreaView style={styles.modalArea}>
+        <SafeAreaView style={styles.modalArea} edges={["top"]}>
           <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : "height"}
             keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}

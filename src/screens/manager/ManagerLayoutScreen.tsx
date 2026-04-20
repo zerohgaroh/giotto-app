@@ -9,7 +9,6 @@ import {
   Platform,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -17,6 +16,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   archiveManagerTable,
   createManagerTable,
@@ -691,7 +691,7 @@ export function ManagerLayoutScreen() {
 
   const tableModal = (
     <Modal visible={tableModalOpen} animationType="slide" onRequestClose={() => !savingTable && setTableModalOpen(false)}>
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <KeyboardAvoidingView style={styles.modalScreen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <ScrollView contentContainerStyle={styles.modalScreenContent} keyboardShouldPersistTaps="handled">
             <View style={styles.sheetHeader}>
@@ -759,7 +759,7 @@ export function ManagerLayoutScreen() {
 
   if (loading && !layout) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <View style={styles.centerState}>
           <Text style={styles.helperText}>Загрузка...</Text>
         </View>
@@ -768,7 +768,7 @@ export function ManagerLayoutScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.screen}>
         {isTablet ? (
           <View style={styles.tabletShell}>

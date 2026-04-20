@@ -1,4 +1,5 @@
-import { Pressable, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../context/AuthContext";
 import { colors } from "../theme/colors";
 
@@ -6,7 +7,7 @@ export function ManagerPendingScreen() {
   const { signOut } = useAuth();
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.card}>
         <Text style={styles.label}>Giotto</Text>
         <Text style={styles.title}>Скоро</Text>

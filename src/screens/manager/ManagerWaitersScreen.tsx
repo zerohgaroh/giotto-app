@@ -3,11 +3,11 @@ import {
   ActivityIndicator,
   FlatList,
   RefreshControl,
-  SafeAreaView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchHallData } from "../../api/client";
 import { colors } from "../../theme/colors";
 import type { HallData } from "../../types/domain";
@@ -37,14 +37,14 @@ export function ManagerWaitersScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.safeArea, styles.center]}>
+      <SafeAreaView style={[styles.safeArea, styles.center]} edges={["top"]}>
         <ActivityIndicator color={colors.navy} />
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.header}>
         <Text style={styles.title}>Официанты</Text>
       </View>
