@@ -5,11 +5,13 @@ import {
   FlatList,
   Image,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { addWaiterOrder, fetchRestaurantData } from "../../api/client";
 import type { WaiterStackParamList } from "../../navigation/types";
 import {
@@ -28,6 +30,7 @@ type Props = NativeStackScreenProps<WaiterStackParamList, "WaiterAddOrder">;
 
 export function WaiterAddOrderScreen({ navigation, route }: Props) {
   const tableId = route.params.tableId;
+  const insets = useSafeAreaInsets();
   const [restaurant, setRestaurant] = useState<RestaurantData | null>(null);
   const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState<string>("all");
@@ -71,8 +74,10 @@ export function WaiterAddOrderScreen({ navigation, route }: Props) {
     () => dishes.map((dish) => ({ dish, qty: qtyMap[dish.id] || 0 })).filter((item) => item.qty > 0),
     [dishes, qtyMap],
   );
+  const selectedItemsCount = selected.reduce((sum, item) => sum + item.qty, 0);
 
   const total = selected.reduce((sum, item) => sum + item.qty * item.dish.price, 0);
+  const listBottomInset = 176 + Math.max(insets.bottom, 12);
 
   useEffect(() => {
     const hasSelection = Object.values(qtyMap).some((qty) => qty > 0);
@@ -147,13 +152,14 @@ export function WaiterAddOrderScreen({ navigation, route }: Props) {
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>Добавить в счёт</Text>
-          <Text style={styles.subtitle}>Стол {tableId}</Text>
-        </View>
-        <Pressable style={styles.closeBtn} onPress={() => navigation.goBack()}>
-          <Text style={styles.closeText}>Закрыть</Text>
+        <Pressable style={styles.backCircle} onPress={() => navigation.goBack()}>
+          <Ionicons name="arrow-back" size={26} color={colors.navyDeep} />
         </Pressable>
+        <View>
+          <Text style={styles.subtitleTop}>СТОЛ №{tableId}</Text>
+          <Text style={styles.title}>Giotto · Меню</Text>
+        </View>
+        <View style={styles.headerSpacer} />
       </View>
 
       <FlatList
@@ -161,11 +167,10 @@ export function WaiterAddOrderScreen({ navigation, route }: Props) {
         keyExtractor={(item) => item.id}
         numColumns={2}
         columnWrapperStyle={styles.row}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, { paddingBottom: listBottomInset }]}
         ListHeaderComponent={
           <View style={styles.categoryCard}>
-            <Text style={styles.sectionTitle}>Категории</Text>
-            <View style={styles.categoriesRow}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoriesRow}>
               <Pressable
                 style={[styles.catChip, category === "all" && styles.catChipActive]}
                 onPress={() => setCategory("all")}
@@ -181,7 +186,7 @@ export function WaiterAddOrderScreen({ navigation, route }: Props) {
                   <Text style={[styles.catText, category === cat.id && styles.catTextActive]}>{cat.labelRu}</Text>
                 </Pressable>
               ))}
-            </View>
+            </ScrollView>
           </View>
         }
         renderItem={({ item }) => {
@@ -199,9 +204,21 @@ export function WaiterAddOrderScreen({ navigation, route }: Props) {
                 </Text>
                 <Text style={styles.priceLabel}>Цена</Text>
                 <Text style={styles.cardPrice}>{formatPrice(item.price)}</Text>
-                <Pressable style={styles.addButton} onPress={() => updateQty(item, 1)}>
-                  <Text style={styles.addButtonText}>+ ДОБАВИТЬ{qty > 0 ? ` · ${qty}` : ""}</Text>
-                </Pressable>
+                {qty > 0 ? (
+                  <View style={styles.stepper}>
+                    <Pressable style={styles.stepperButton} onPress={() => updateQty(item, -1)}>
+                      <Text style={styles.stepperButtonText}>−</Text>
+                    </Pressable>
+                    <Text style={styles.stepperValue}>{qty}</Text>
+                    <Pressable style={styles.stepperButton} onPress={() => updateQty(item, 1)}>
+                      <Text style={styles.stepperButtonText}>+</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Pressable style={styles.addButton} onPress={() => updateQty(item, 1)}>
+                    <Text style={styles.addButtonText}>+ ДОБАВИТЬ</Text>
+                  </Pressable>
+                )}
               </View>
             </View>
           );
@@ -210,11 +227,11 @@ export function WaiterAddOrderScreen({ navigation, route }: Props) {
 
       {errorText ? <Text style={styles.error}>{errorText}</Text> : null}
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) + 6 }]}>
         <View style={styles.footerRow}>
           <Text style={styles.total}>Итого: {formatPrice(total)}</Text>
           <View style={styles.counterPill}>
-            <Text style={styles.counterPillText}>Позиций: {selected.reduce((sum, item) => sum + item.qty, 0)}</Text>
+            <Text style={styles.counterPillText}>Позиций: {selectedItemsCount}</Text>
           </View>
         </View>
         <Pressable
@@ -240,52 +257,47 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingTop: 8,
+    paddingBottom: 8,
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    gap: 12,
+  },
+  backCircle: {
+    width: 58,
+    height: 58,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.white,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerSpacer: {
+    width: 58,
   },
   title: {
     color: colors.navyDeep,
-    fontSize: 24,
-    fontWeight: "700",
+    fontSize: 46,
+    lineHeight: 52,
+    fontWeight: "800",
+    letterSpacing: 0,
   },
-  subtitle: {
+  subtitleTop: {
     color: colors.muted,
-    marginTop: 4,
-    fontSize: 16,
-  },
-  closeBtn: {
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: colors.white,
-  },
-  closeText: {
-    color: colors.navy,
-    fontWeight: "600",
-    fontSize: 16,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    marginBottom: 2,
   },
   categoryCard: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.white,
-    padding: 12,
-    gap: 10,
     marginBottom: 12,
-  },
-  sectionTitle: {
-    color: colors.navyDeep,
-    fontWeight: "700",
-    fontSize: 18,
   },
   categoriesRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: 8,
+    paddingHorizontal: 2,
   },
   catChip: {
     borderWidth: 1,
@@ -310,7 +322,6 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: 12,
     paddingTop: 8,
-    paddingBottom: 160,
   },
   row: {
     gap: 8,
@@ -336,7 +347,7 @@ const styles = StyleSheet.create({
   cardTitle: {
     color: colors.navyDeep,
     fontSize: 18,
-    fontWeight: "600",
+    fontWeight: "700",
     minHeight: 56,
   },
   priceLabel: {
@@ -364,6 +375,33 @@ const styles = StyleSheet.create({
     fontSize: 18,
     letterSpacing: 1,
   },
+  stepper: {
+    marginTop: 8,
+    minHeight: 48,
+    borderRadius: 18,
+    backgroundColor: colors.navy,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+  },
+  stepperButton: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepperButtonText: {
+    color: colors.white,
+    fontSize: 28,
+    lineHeight: 28,
+    fontWeight: "500",
+  },
+  stepperValue: {
+    color: colors.white,
+    fontWeight: "700",
+    fontSize: 18,
+  },
   error: {
     paddingHorizontal: 16,
     color: "#B42318",
@@ -375,7 +413,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: colors.line,
     backgroundColor: colors.cream,

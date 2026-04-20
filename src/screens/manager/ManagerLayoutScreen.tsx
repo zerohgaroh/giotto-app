@@ -491,24 +491,6 @@ export function ManagerLayoutScreen() {
         </View>
       ) : null}
 
-      {!loading && (layout?.zones.length ?? 0) > 0 ? (
-        <Pressable
-          style={[styles.zoneCard, selectedZoneId === null && isTablet ? styles.zoneCardActive : null]}
-          onPress={() => setSelectedZoneId(null)}
-        >
-          <View style={styles.zoneBadge}>
-            <Ionicons name="grid-outline" size={22} color={colors.navy} />
-          </View>
-          <View style={styles.zoneCopy}>
-            <Text style={styles.zoneTitle}>Все объекты</Text>
-            <Text style={styles.zoneMeta}>{allActiveTables.length} активных столов</Text>
-          </View>
-          <View style={styles.cardActions}>
-            <Ionicons name="chevron-forward-outline" size={18} color={colors.navyDeep} />
-          </View>
-        </Pressable>
-      ) : null}
-
       {(layout?.zones ?? []).map((zone) => {
         const active = selectedZoneId === zone.id;
         const count = zoneCounts.get(zone.id) ?? 0;

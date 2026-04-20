@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -14,7 +15,11 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { fetchManagerRestaurantSettings, updateManagerRestaurantSettings } from "../../api/client";
+import {
+  fetchManagerRestaurantSettings,
+  updateManagerRestaurantSettings,
+  uploadManagerMenuImage,
+} from "../../api/client";
 import { useRealtimeRefresh } from "../../realtime/useRealtimeRefresh";
 import { colors } from "../../theme/colors";
 import type { RealtimeEvent, RestaurantData } from "../../types/domain";
@@ -84,6 +89,8 @@ export function ManagerSettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingBanner, setUploadingBanner] = useState(false);
   const [errorText, setErrorText] = useState("");
   const [successText, setSuccessText] = useState("");
 
@@ -131,6 +138,52 @@ export function ManagerSettingsScreen() {
     setDraft((current) => ({ ...current, [key]: value }));
     setSuccessText("");
   }, []);
+
+  const pickBrandImage = useCallback(
+    async (target: "logo" | "banner", source: "camera" | "library") => {
+      const setUploading = target === "logo" ? setUploadingLogo : setUploadingBanner;
+      try {
+        if (source === "camera") {
+          const permission = await ImagePicker.requestCameraPermissionsAsync();
+          if (!permission.granted) {
+            setErrorText("Нужен доступ к камере.");
+            return;
+          }
+        } else {
+          const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (!permission.granted) {
+            setErrorText("Нужен доступ к фото.");
+            return;
+          }
+        }
+
+        const result =
+          source === "camera"
+            ? await ImagePicker.launchCameraAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                quality: 0.9,
+                allowsEditing: true,
+              })
+            : await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                quality: 0.9,
+                allowsEditing: true,
+              });
+
+        if (result.canceled || !result.assets[0]) return;
+
+        setUploading(true);
+        const uploaded = await uploadManagerMenuImage(result.assets[0]);
+        updateDraft(target, uploaded.url);
+        setErrorText("");
+      } catch {
+        setErrorText(target === "logo" ? "Не удалось загрузить логотип." : "Не удалось загрузить баннер.");
+      } finally {
+        setUploading(false);
+      }
+    },
+    [updateDraft],
+  );
 
   const save = useCallback(async () => {
     if (!draft.name.trim() || !draft.subtitle.trim() || !draft.description.trim() || !draft.logo.trim() || !draft.banner.trim()) {
@@ -207,8 +260,51 @@ export function ManagerSettingsScreen() {
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Бренд</Text>
-            <Field label="Logo URL" value={draft.logo} onChangeText={(value) => updateDraft("logo", value)} placeholder="https://..." />
-            <Field label="Banner URL" value={draft.banner} onChangeText={(value) => updateDraft("banner", value)} placeholder="https://..." />
+            <View style={styles.fieldBlock}>
+              <Text style={styles.fieldLabel}>Логотип</Text>
+              {draft.logo ? <Image source={{ uri: draft.logo }} style={styles.brandImageLogo} resizeMode="contain" /> : null}
+              <View style={styles.brandActions}>
+                <Pressable
+                  style={[styles.secondaryActionButton, uploadingLogo ? styles.buttonDisabled : null]}
+                  onPress={() => void pickBrandImage("logo", "library")}
+                  disabled={uploadingLogo}
+                >
+                  <Ionicons name="images-outline" size={18} color={colors.navy} />
+                  <Text style={styles.secondaryActionButtonText}>{uploadingLogo ? "..." : "Галерея"}</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.secondaryActionButton, uploadingLogo ? styles.buttonDisabled : null]}
+                  onPress={() => void pickBrandImage("logo", "camera")}
+                  disabled={uploadingLogo}
+                >
+                  <Ionicons name="camera-outline" size={18} color={colors.navy} />
+                  <Text style={styles.secondaryActionButtonText}>Камера</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            <View style={styles.fieldBlock}>
+              <Text style={styles.fieldLabel}>Баннер</Text>
+              {draft.banner ? <Image source={{ uri: draft.banner }} style={styles.brandImageBanner} resizeMode="cover" /> : null}
+              <View style={styles.brandActions}>
+                <Pressable
+                  style={[styles.secondaryActionButton, uploadingBanner ? styles.buttonDisabled : null]}
+                  onPress={() => void pickBrandImage("banner", "library")}
+                  disabled={uploadingBanner}
+                >
+                  <Ionicons name="images-outline" size={18} color={colors.navy} />
+                  <Text style={styles.secondaryActionButtonText}>{uploadingBanner ? "..." : "Галерея"}</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.secondaryActionButton, uploadingBanner ? styles.buttonDisabled : null]}
+                  onPress={() => void pickBrandImage("banner", "camera")}
+                  disabled={uploadingBanner}
+                >
+                  <Ionicons name="camera-outline" size={18} color={colors.navy} />
+                  <Text style={styles.secondaryActionButtonText}>Камера</Text>
+                </Pressable>
+              </View>
+            </View>
           </View>
 
           <View style={styles.card}>
@@ -266,6 +362,22 @@ const styles = StyleSheet.create({
   saveButtonText: {
     color: colors.white,
     fontWeight: "800",
+  },
+  secondaryActionButton: {
+    minHeight: 42,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.white,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  secondaryActionButtonText: {
+    color: colors.navy,
+    fontWeight: "700",
   },
   buttonDisabled: {
     opacity: 0.55,
@@ -353,10 +465,31 @@ const styles = StyleSheet.create({
   fieldBlock: {
     gap: 7,
   },
+  brandActions: {
+    flexDirection: "row",
+    gap: 8,
+    flexWrap: "wrap",
+  },
   fieldLabel: {
     color: colors.navyDeep,
     fontSize: 13,
     fontWeight: "800",
+  },
+  brandImageLogo: {
+    width: 120,
+    height: 120,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E3DBCD",
+    backgroundColor: "#F7F1E6",
+  },
+  brandImageBanner: {
+    width: "100%",
+    height: 110,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E3DBCD",
+    backgroundColor: "#F7F1E6",
   },
   input: {
     minHeight: 46,

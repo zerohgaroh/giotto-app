@@ -559,24 +559,6 @@ export function ManagerMenuScreen() {
         </View>
       ) : null}
 
-      {!loading && (menu?.categories.length ?? 0) > 0 ? (
-        <Pressable
-          style={[styles.categoryCard, selectedCategoryId === null && isTablet ? styles.categoryCardActive : null]}
-          onPress={() => setSelectedCategoryId(null)}
-        >
-          <View style={styles.categoryCover}>
-            <Ionicons name="grid-outline" size={28} color={colors.navy} />
-          </View>
-          <View style={styles.categoryCopy}>
-            <Text style={styles.categoryTitle}>Все меню</Text>
-            <Text style={styles.categoryHint}>{menu?.dishes.length ?? 0} блюд во всех категориях</Text>
-          </View>
-          <View style={styles.categoryActions}>
-            <Ionicons name="chevron-forward-outline" size={18} color={colors.navyDeep} />
-          </View>
-        </Pressable>
-      ) : null}
-
       {(menu?.categories ?? []).map((category) => {
         const dishesCount = dishCounts[category.id] || 0;
         const cover = getCategoryCoverImage(menu, category.id);
