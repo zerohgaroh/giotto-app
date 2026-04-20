@@ -15,7 +15,7 @@ import { closeManagerTable, fetchManagerTable, reassignManagerTable } from "../.
 import { StatusBadge } from "../../components/StatusBadge";
 import { useStaffRealtime } from "../../realtime/useStaffRealtime";
 import { colors } from "../../theme/colors";
-import { formatDurationFrom, formatPrice, formatTime } from "../../theme/format";
+import { formatDurationFrom, formatTime } from "../../theme/format";
 import type { ManagerTableDetail, RealtimeEvent } from "../../types/domain";
 
 type Props = {
@@ -123,10 +123,7 @@ export function ManagerTablePanel({ tableId, onBack, onMutated }: Props) {
     }
   }, [data?.guestLink.url]);
 
-  const total = useMemo(
-    () => (data?.billLines || []).reduce((sum, line) => sum + line.qty * line.price, 0),
-    [data?.billLines],
-  );
+  const activeRequests = useMemo(() => data.requests.filter((request) => !request.resolvedAt), [data.requests]);
 
   if (loading || !data) {
     return (
@@ -235,10 +232,10 @@ export function ManagerTablePanel({ tableId, onBack, onMutated }: Props) {
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Запросы</Text>
-        {data.requests.length === 0 ? (
+        {activeRequests.length === 0 ? (
           <Text style={styles.emptyText}>Активных запросов нет.</Text>
         ) : (
-          data.requests.map((request) => (
+          activeRequests.map((request) => (
             <View key={request.id} style={styles.rowCard}>
               <Text style={styles.rowTitle}>
                 {request.type === "bill" ? "Запросили счёт" : "Вызвали официанта"}
@@ -248,39 +245,6 @@ export function ManagerTablePanel({ tableId, onBack, onMutated }: Props) {
             </View>
           ))
         )}
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Счёт</Text>
-        {data.billLines.length === 0 ? (
-          <Text style={styles.emptyText}>Пока пусто.</Text>
-        ) : (
-          data.billLines.map((line) => (
-            <View key={line.id} style={styles.billRow}>
-              <View style={styles.billCopy}>
-                <Text style={styles.rowTitle}>
-                  {line.title} x {line.qty}
-                </Text>
-                <Text style={styles.rowMeta}>{line.source === "guest" ? "Гость" : "Официант"}</Text>
-                {line.note ? <Text style={styles.rowMeta}>Заметка: {line.note}</Text> : null}
-              </View>
-              <Text style={styles.billAmount}>{formatPrice(line.qty * line.price)}</Text>
-            </View>
-          ))
-        )}
-        <Text style={styles.totalText}>Итого: {formatPrice(total)}</Text>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Заметка</Text>
-        <Text style={styles.noteText}>{data.note || "Пусто"}</Text>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Отзыв</Text>
-        <Text style={styles.metaText}>
-          {data.reviewPrompt ? `До ${formatTime(data.reviewPrompt.expiresAt)}` : "Окно отзыва не активно"}
-        </Text>
       </View>
 
       <Pressable
@@ -453,30 +417,6 @@ const styles = StyleSheet.create({
   rowMeta: {
     color: colors.muted,
     fontSize: 12,
-  },
-  billRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  billCopy: {
-    flex: 1,
-  },
-  billAmount: {
-    color: colors.navyDeep,
-    fontWeight: "700",
-  },
-  totalText: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
-    color: colors.navyDeep,
-    fontWeight: "700",
-    fontSize: 15,
-  },
-  noteText: {
-    color: colors.text,
-    lineHeight: 20,
   },
   closeButton: {
     minHeight: 48,
