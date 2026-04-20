@@ -16,7 +16,7 @@ import { fetchWaiterTables } from "../../api/client";
 import type { WaiterStackParamList, WaiterTabParamList } from "../../navigation/types";
 import { StatusBadge } from "../../components/StatusBadge";
 import { useAuth } from "../../context/AuthContext";
-import { useWaiterRealtime } from "../../realtime/useWaiterRealtime";
+import { useRealtimeRefresh } from "../../realtime/useRealtimeRefresh";
 import { colors } from "../../theme/colors";
 import { formatDurationFrom } from "../../theme/format";
 import type { WaiterTablesResponse } from "../../types/domain";
@@ -45,11 +45,9 @@ export function WaiterHomeScreen({ navigation }: Props) {
     }
   }, []);
 
-  const handleRealtimeEvent = useCallback(() => {
-    void pull(false);
-  }, [pull]);
-
-  const { connected } = useWaiterRealtime(handleRealtimeEvent);
+  const { connected } = useRealtimeRefresh({
+    refresh: useCallback(() => pull(false), [pull]),
+  });
 
   useEffect(() => {
     void pull(true);
@@ -72,8 +70,8 @@ export function WaiterHomeScreen({ navigation }: Props) {
     setRefreshing(false);
   };
 
-  const activeCalls = useMemo(
-    () => data?.tables.filter((table) => table.activeRequest).length ?? 0,
+  const activeTasks = useMemo(
+    () => data?.tables.reduce((sum, table) => sum + table.openTasksCount, 0) ?? 0,
     [data?.tables],
   );
   const sortedTables = useMemo(() => sortWaiterTables(data?.tables ?? []), [data?.tables]);
@@ -93,7 +91,7 @@ export function WaiterHomeScreen({ navigation }: Props) {
       <View style={styles.subHeader}>
         <Text style={styles.sectionTitle}>Мои столы</Text>
         <View style={styles.callsCounter}>
-          <Text style={styles.callsCounterText}>Вызовы: {activeCalls}</Text>
+          <Text style={styles.callsCounterText}>Новые задачи: {activeTasks}</Text>
         </View>
       </View>
 
@@ -117,9 +115,10 @@ export function WaiterHomeScreen({ navigation }: Props) {
             </View>
           }
           renderItem={({ item }) => {
-            const highlighted = item.status === "waiting" || item.status === "bill";
+            const highlighted = item.status === "waiting" || item.status === "bill" || item.openTasksCount > 0;
             const requestLabel =
               item.activeRequest?.type === "bill" ? "Запросили счёт" : item.activeRequest ? "Вызвали официанта" : "";
+            const taskLabel = item.openTasksCount > 0 ? `Новые задачи: ${item.openTasksCount}` : "";
             const stackNavigation = navigation.getParent<NativeStackNavigationProp<WaiterStackParamList>>();
 
             return (
@@ -133,9 +132,9 @@ export function WaiterHomeScreen({ navigation }: Props) {
                 </View>
                 <Text style={styles.cardTime}>За столом {formatDurationFrom(item.guestStartedAt, now)}</Text>
                 <Text style={styles.metaText}>Задачи: {item.openTasksCount} · Срочно: {item.urgentTasksCount}</Text>
-                {requestLabel ? (
+                {requestLabel || taskLabel ? (
                   <Text style={styles.requestText} numberOfLines={2}>
-                    {requestLabel}
+                    {requestLabel || taskLabel}
                   </Text>
                 ) : (
                   <Text style={styles.metaText}>Без запросов</Text>

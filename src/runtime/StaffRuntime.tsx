@@ -122,6 +122,12 @@ function maybeOpenTableFromData(data: Record<string, unknown> | undefined) {
   openWaiterTable(tableId);
 }
 
+function alertEyebrow(requestType: IncomingServiceAlert["requestType"]) {
+  if (requestType === "bill") return "Счёт";
+  if (requestType === "order") return "Новый заказ";
+  return "Новый вызов";
+}
+
 export function StaffRuntime() {
   const { session } = useAuth();
   const [alertQueue, setAlertQueue] = useState<IncomingServiceAlert[]>([]);
@@ -362,12 +368,16 @@ export function StaffRuntime() {
         <Pressable
           style={styles.alertPressable}
           onPress={() => {
-            openWaiterQueueForTable(currentAlert.tableId);
+            if (currentAlert.requestType === "order") {
+              openWaiterTable(currentAlert.tableId);
+            } else {
+              openWaiterQueueForTable(currentAlert.tableId);
+            }
             dismissCurrentAlert();
           }}
         >
           <View style={styles.alertCopy}>
-            <Text style={styles.alertEyebrow}>{currentAlert.requestType === "bill" ? "Счёт" : "Новый вызов"}</Text>
+            <Text style={styles.alertEyebrow}>{alertEyebrow(currentAlert.requestType)}</Text>
             <Text style={styles.alertTitle}>{currentAlert.title}</Text>
             <Text style={styles.alertMessage} numberOfLines={2}>
               {currentAlert.message}

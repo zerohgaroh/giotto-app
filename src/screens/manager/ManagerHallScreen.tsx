@@ -16,7 +16,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchManagerHall } from "../../api/client";
 import { StatusBadge } from "../../components/StatusBadge";
 import type { ManagerStackParamList } from "../../navigation/types";
-import { useStaffRealtime } from "../../realtime/useStaffRealtime";
+import { useRealtimeRefresh } from "../../realtime/useRealtimeRefresh";
 import { colors } from "../../theme/colors";
 import { formatDurationFrom } from "../../theme/format";
 import type { ManagerHallResponse, ServiceTableStatus } from "../../types/domain";
@@ -64,11 +64,9 @@ export function ManagerHallScreen() {
     return () => clearInterval(timer);
   }, [pull]);
 
-  const { connected, connecting } = useStaffRealtime(
-    useCallback(() => {
-      void pull(false);
-    }, [pull]),
-  );
+  const { connected, connecting } = useRealtimeRefresh({
+    refresh: useCallback(() => pull(false), [pull]),
+  });
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

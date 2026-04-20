@@ -8,6 +8,7 @@ import { ManagerHallScreen } from "../screens/manager/ManagerHallScreen";
 import { ManagerHistoryScreen } from "../screens/manager/ManagerHistoryScreen";
 import { ManagerLayoutScreen } from "../screens/manager/ManagerLayoutScreen";
 import { ManagerMenuScreen } from "../screens/manager/ManagerMenuScreen";
+import { ManagerSettingsScreen } from "../screens/manager/ManagerSettingsScreen";
 import { ManagerTeamScreen } from "../screens/manager/ManagerTeamScreen";
 import { colors } from "../theme/colors";
 import type { ManagerTabParamList } from "./types";
@@ -51,6 +52,7 @@ export function ManagerTabsNavigator() {
             ManagerTeam: "people",
             ManagerMenu: "restaurant",
             ManagerLayout: "map",
+            ManagerSettings: "settings",
           };
 
           return <Ionicons name={map[route.name]} size={size} color={color} />;
@@ -62,6 +64,7 @@ export function ManagerTabsNavigator() {
       <Tab.Screen name="ManagerTeam" component={ManagerTeamScreen} options={{ title: "Команда" }} />
       <Tab.Screen name="ManagerMenu" component={ManagerMenuScreen} options={{ title: "Меню" }} />
       <Tab.Screen name="ManagerLayout" component={ManagerLayoutScreen} options={{ title: "План" }} />
+      <Tab.Screen name="ManagerSettings" component={ManagerSettingsScreen} options={{ title: "Настройки" }} />
     </Tab.Navigator>
   );
 }

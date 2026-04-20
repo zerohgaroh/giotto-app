@@ -1,6 +1,7 @@
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   ActivityIndicator,
   Pressable,
   RefreshControl,
@@ -12,24 +13,29 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
-  ackWaiterRequest,
-  ackWaiterTask,
   completeWaiterTask,
-  doneWaiter,
   fetchWaiterShortcuts,
   fetchWaiterTable,
+  finishWaiterTable,
   repeatLastWaiterOrder,
   setTableNote,
-  startWaiterTask,
 } from "../../api/client";
 import { StatusBadge } from "../../components/StatusBadge";
 import type { WaiterStackParamList } from "../../navigation/types";
-import { useWaiterRealtime } from "../../realtime/useWaiterRealtime";
+import { useRealtimeRefresh } from "../../realtime/useRealtimeRefresh";
 import { clearNoteDraft, createMutationKey, loadNoteDraft, saveNoteDraft } from "../../runtime/waiterDrafts";
 import { colors } from "../../theme/colors";
 import { formatDurationFrom, formatPrice, formatTime } from "../../theme/format";
-import type { RealtimeEvent, WaiterShortcuts, WaiterTableDetailResponse, WaiterTask, WaiterTableTimelineEntry } from "../../types/domain";
+import type { RealtimeEvent, WaiterShortcuts, WaiterTableDetailResponse, WaiterTableTimelineEntry } from "../../types/domain";
 import { shouldExitWaiterTableFlow } from "./waiterAccessGuard";
+import {
+  canFinishWaiterTable,
+  getVisibleWaiterTasks,
+  waiterTaskBusinessStatus,
+  waiterTaskSubtitle,
+  waiterTaskTitle,
+  waiterTaskTypeLabel,
+} from "./waiterBusiness";
 
 type Props = NativeStackScreenProps<WaiterStackParamList, "WaiterTable">;
 
@@ -41,6 +47,8 @@ function timelineLabel(entry: WaiterTableTimelineEntry) {
       return "Запросили счёт";
     case "waiter:acknowledged":
       return "Запрос принят";
+    case "order:submitted_by_guest":
+      return "Заказ от гостя";
     case "order:added_by_waiter":
       return "Добавлены позиции";
     case "waiter:done":
@@ -62,26 +70,6 @@ function timelineLabel(entry: WaiterTableTimelineEntry) {
   }
 }
 
-function taskStatusText(task: WaiterTask) {
-  if (task.status === "acknowledged") return "Принято";
-  if (task.status === "in_progress") return "В работе";
-  if (task.status === "completed") return "Готово";
-  if (task.status === "cancelled") return "Отменено";
-  return "Новое";
-}
-
-function taskTypeText(task: WaiterTask) {
-  if (task.type === "bill_request") return "Счёт";
-  if (task.type === "follow_up") return "Задача";
-  return "Вызов";
-}
-
-function taskBadgeStatus(task: WaiterTask): "bill" | "waiting" | "occupied" {
-  if (task.type === "bill_request") return "bill";
-  if (task.priority === "urgent") return "waiting";
-  return "occupied";
-}
-
 export function WaiterTableScreen({ navigation, route }: Props) {
   const tableId = route.params.tableId;
   const [data, setData] = useState<WaiterTableDetailResponse | null>(null);
@@ -96,7 +84,7 @@ export function WaiterTableScreen({ navigation, route }: Props) {
   const [now, setNow] = useState(Date.now());
   const [taskBusyId, setTaskBusyId] = useState<string | null>(null);
   const [repeatBusy, setRepeatBusy] = useState(false);
-  const [doneBusy, setDoneBusy] = useState(false);
+  const [finishBusy, setFinishBusy] = useState(false);
   const [historyVisibleCount, setHistoryVisibleCount] = useState(5);
 
   const applyDetail = useCallback(
@@ -142,15 +130,10 @@ export function WaiterTableScreen({ navigation, route }: Props) {
     [applyDetail, navigation, tableId],
   );
 
-  const handleRealtimeEvent = useCallback(
-    (event: RealtimeEvent) => {
-      if (event.tableId !== tableId) return;
-      void pull(false, false);
-    },
-    [pull, tableId],
-  );
-
-  const { connected } = useWaiterRealtime(handleRealtimeEvent);
+  const { connected } = useRealtimeRefresh({
+    filter: useCallback((event: RealtimeEvent) => event.tableId === tableId, [tableId]),
+    refresh: useCallback(() => pull(false, false), [pull]),
+  });
 
   useEffect(() => {
     void pull(true, true);
@@ -206,30 +189,14 @@ export function WaiterTableScreen({ navigation, route }: Props) {
   );
   const visibleTimeline = useMemo(() => data?.timeline.slice(0, historyVisibleCount) ?? [], [data?.timeline, historyVisibleCount]);
   const hasMoreTimeline = (data?.timeline.length ?? 0) > historyVisibleCount;
+  const visibleTasks = useMemo(() => getVisibleWaiterTasks(data?.tasks ?? []), [data?.tasks]);
+  const isFreeTable = !data || data.table.status === "free" || !data.table.hasActiveSession;
+  const canFinish = canFinishWaiterTable(data);
 
-  const onAckRequest = async (requestId: string) => {
+  const onCompleteTask = async (taskId: string) => {
+    setTaskBusyId(taskId);
     try {
-      const next = await ackWaiterRequest(tableId, requestId);
-      await applyDetail(next);
-      setErrorText("");
-    } catch (error) {
-      if (shouldExitWaiterTableFlow(error)) {
-        navigation.goBack();
-        return;
-      }
-      setErrorText("Не удалось принять запрос.");
-    }
-  };
-
-  const onTaskAction = async (task: WaiterTask, action: "ack" | "start" | "complete") => {
-    setTaskBusyId(task.id);
-    try {
-      const next =
-        action === "ack"
-          ? await ackWaiterTask(task.id)
-          : action === "start"
-            ? await startWaiterTask(task.id)
-            : await completeWaiterTask(task.id, createMutationKey("task-complete"));
+      const next = await completeWaiterTask(taskId, createMutationKey("task-complete"));
       await applyDetail(next);
       setErrorText("");
     } catch (error) {
@@ -260,21 +227,32 @@ export function WaiterTableScreen({ navigation, route }: Props) {
     }
   };
 
-  const onDone = async () => {
-    setDoneBusy(true);
+  const runFinish = async () => {
+    setFinishBusy(true);
     try {
-      await doneWaiter(tableId);
+      const next = await finishWaiterTable(tableId, createMutationKey("finish-table"));
+      await applyDetail(next);
       setErrorText("");
-      navigation.goBack();
     } catch (error) {
       if (shouldExitWaiterTableFlow(error)) {
         navigation.goBack();
         return;
       }
-      setErrorText("Не удалось завершить обслуживание.");
+      setErrorText("Не удалось закрыть стол.");
     } finally {
-      setDoneBusy(false);
+      setFinishBusy(false);
     }
+  };
+
+  const onFinish = () => {
+    Alert.alert(
+      "Закрыть стол?",
+      "Стол станет свободным, активные задачи закроются, а гостю откроется форма отзыва.",
+      [
+        { text: "Отмена", style: "cancel" },
+        { text: "Закрыть", style: "destructive", onPress: () => void runFinish() },
+      ],
+    );
   };
 
   if (loading || !data) {
@@ -303,7 +281,9 @@ export function WaiterTableScreen({ navigation, route }: Props) {
         <View style={styles.headerRow}>
           <View>
             <Text style={styles.tableLabel}>Стол {tableId}</Text>
-            <Text style={styles.timeSpent}>За столом {formatDurationFrom(data.table.guestStartedAt, now)}</Text>
+            <Text style={styles.timeSpent}>
+              {isFreeTable ? "Стол свободен" : `За столом ${formatDurationFrom(data.table.guestStartedAt, now)}`}
+            </Text>
           </View>
           <StatusBadge status={data.table.status} />
         </View>
@@ -312,79 +292,58 @@ export function WaiterTableScreen({ navigation, route }: Props) {
 
         {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
 
-        {(data.requests || []).map((request) => (
-          <View key={request.id} style={styles.alertCard}>
-            <Text style={styles.alertTitle}>{request.type === "bill" ? "Запросили счёт" : "Вызвали официанта"}</Text>
-            <Text style={styles.alertSub}>{request.reason}</Text>
-            <Text style={styles.alertSub}>{formatTime(request.createdAt)}</Text>
-            <Pressable style={styles.goldButton} onPress={() => void onAckRequest(request.id)}>
-              <Text style={styles.goldButtonText}>Принять</Text>
+        {isFreeTable ? (
+          <View style={styles.freeCard}>
+            <Text style={styles.freeTitle}>Стол свободен</Text>
+            <Text style={styles.freeText}>Можно открыть стол вручную, если гости сделали заказ через официанта.</Text>
+            <Pressable style={styles.goldButton} onPress={() => navigation.navigate("WaiterAddOrder", { tableId })}>
+              <Text style={styles.goldButtonText}>Добавить заказ</Text>
             </Pressable>
           </View>
-        ))}
+        ) : null}
 
-        <View style={styles.card}>
+        {!isFreeTable ? <View style={styles.card}>
           <View style={styles.cardHeaderRow}>
-            <Text style={styles.cardTitle}>Задачи</Text>
-            <Text style={styles.metaBadge}>{data.tasks.length}</Text>
+            <Text style={styles.cardTitle}>Что нужно сделать</Text>
+            <Text style={styles.metaBadge}>{visibleTasks.length}</Text>
           </View>
-          {data.tasks.length === 0 ? (
-            <Text style={styles.emptyText}>Задач нет.</Text>
+          {visibleTasks.length === 0 ? (
+            <Text style={styles.emptyText}>Новых задач нет.</Text>
           ) : (
             <View style={styles.stack}>
-              {data.tasks.map((task) => {
+              {visibleTasks.map((task) => {
                 const busy = taskBusyId === task.id;
                 return (
                   <View key={task.id} style={styles.taskCard}>
                     <View style={styles.cardHeaderRow}>
                       <View style={styles.flexOne}>
-                        <Text style={styles.taskTitle}>{task.title}</Text>
+                        <Text style={styles.taskTitle}>{waiterTaskTitle(task)}</Text>
                         <Text style={styles.taskMeta}>
-                          {taskTypeText(task)} · {taskStatusText(task)}
+                          {waiterTaskTypeLabel(task)} · {waiterTaskBusinessStatus(task)}
                         </Text>
                       </View>
-                      <StatusBadge status={taskBadgeStatus(task)} />
+                      <Text style={styles.newTaskBadge}>Новое</Text>
                     </View>
-                    {task.subtitle ? <Text style={styles.taskNote}>{task.subtitle}</Text> : null}
+                    {waiterTaskSubtitle(task) ? <Text style={styles.taskNote}>{waiterTaskSubtitle(task)}</Text> : null}
                     {task.note ? <Text style={styles.taskNote}>Заметка: {task.note}</Text> : null}
                     <Text style={styles.taskMeta}>С {formatTime(task.createdAt)}</Text>
                     {task.dueAt ? <Text style={styles.taskMeta}>До {formatTime(task.dueAt)}</Text> : null}
 
                     <View style={styles.inlineActions}>
-                      {task.status === "open" ? (
-                        <Pressable
-                          style={[styles.smallOutlineButton, busy && styles.buttonDisabled]}
-                          disabled={busy}
-                          onPress={() => void onTaskAction(task, "ack")}
-                        >
-                          <Text style={styles.smallOutlineButtonText}>{busy ? "..." : "Принять"}</Text>
-                        </Pressable>
-                      ) : null}
-                      {(task.status === "open" || task.status === "acknowledged") && (
-                        <Pressable
-                          style={[styles.smallOutlineButton, busy && styles.buttonDisabled]}
-                          disabled={busy}
-                          onPress={() => void onTaskAction(task, "start")}
-                        >
-                          <Text style={styles.smallOutlineButtonText}>{busy ? "..." : "Начать"}</Text>
-                        </Pressable>
-                      )}
-                      {task.status !== "completed" && task.status !== "cancelled" ? (
-                        <Pressable
-                          style={[styles.smallGoldButton, busy && styles.buttonDisabled]}
-                          disabled={busy}
-                          onPress={() => void onTaskAction(task, "complete")}
-                        >
-                          <Text style={styles.smallGoldButtonText}>{busy ? "..." : "Готово"}</Text>
-                        </Pressable>
-                      ) : null}
+                      <Pressable
+                        style={[styles.smallGoldButton, busy && styles.buttonDisabled]}
+                        disabled={busy}
+                        onPress={() => void onCompleteTask(task.id)}
+                      >
+                        <Text style={styles.smallGoldButtonText}>{busy ? "..." : "Выполнено"}</Text>
+                      </Pressable>
                     </View>
                   </View>
                 );
               })}
             </View>
           )}
-        </View>
+        </View> : null}
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Счёт</Text>
@@ -422,7 +381,7 @@ export function WaiterTableScreen({ navigation, route }: Props) {
           </View>
         </View>
 
-        <View style={styles.card}>
+        {!isFreeTable ? <View style={styles.card}>
           <Text style={styles.cardTitle}>Заметка</Text>
           <TextInput
             value={noteDraft}
@@ -444,9 +403,9 @@ export function WaiterTableScreen({ navigation, route }: Props) {
           <Text style={styles.helperText}>
             {savingNote ? "Сохраняется" : noteDraft === lastSyncedNote ? "Сохранено" : "Черновик"}
           </Text>
-        </View>
+        </View> : null}
 
-        <View style={styles.card}>
+        {!isFreeTable ? <View style={styles.card}>
           <Text style={styles.cardTitle}>История</Text>
           {data.timeline.length === 0 ? (
             <Text style={styles.emptyText}>Пока пусто.</Text>
@@ -473,7 +432,7 @@ export function WaiterTableScreen({ navigation, route }: Props) {
               ) : null}
             </View>
           )}
-        </View>
+        </View> : null}
 
         {data.reviewPrompt ? (
           <View style={styles.card}>
@@ -483,15 +442,15 @@ export function WaiterTableScreen({ navigation, route }: Props) {
         ) : null}
       </ScrollView>
 
-      <View style={styles.bottomBar}>
+      {canFinish ? <View style={styles.bottomBar}>
         <Pressable
-          disabled={doneBusy}
-          style={[styles.doneButton, doneBusy && styles.doneButtonDisabled]}
-          onPress={() => void onDone()}
+          disabled={finishBusy}
+          style={[styles.doneButton, finishBusy && styles.doneButtonDisabled]}
+          onPress={onFinish}
         >
-          <Text style={styles.doneButtonText}>{doneBusy ? "..." : "Всё обслужил"}</Text>
+          <Text style={styles.doneButtonText}>{finishBusy ? "..." : "Закрыть стол и попросить отзыв"}</Text>
         </Pressable>
-      </View>
+      </View> : null}
     </SafeAreaView>
   );
 }
@@ -574,6 +533,24 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 12,
   },
+  freeCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E8D6B5",
+    backgroundColor: "#FFF8EC",
+    padding: 14,
+    gap: 8,
+  },
+  freeTitle: {
+    color: colors.navyDeep,
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  freeText: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
+  },
   goldButton: {
     marginTop: 10,
     alignSelf: "flex-start",
@@ -642,6 +619,17 @@ const styles = StyleSheet.create({
   taskNote: {
     color: colors.text,
     fontSize: 13,
+  },
+  newTaskBadge: {
+    borderRadius: 999,
+    backgroundColor: "#FFF8EC",
+    borderWidth: 1,
+    borderColor: "#E8D6B5",
+    color: "#8A6A33",
+    fontSize: 11,
+    fontWeight: "800",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   inlineActions: {
     flexDirection: "row",

@@ -10,7 +10,7 @@
 - Список назначенных столов.
 - Детальная карточка стола.
 - `Acknowledge`, `Add order`, session note с autosave, `All service completed`.
-- Foreground realtime через `GET /api/staff/realtime/stream`.
+- Foreground realtime через один app-level `GET /api/staff/realtime/stream` с cursor catch-up.
 - Expo push для waiter-вызовов и запросов счёта.
 
 ### Manager v1
@@ -28,10 +28,10 @@
 
 ## Architecture
 
-- `giotto-app` хранит access token в памяти и refresh token в `SecureStore`.
+- `giotto-app` хранит access token в памяти, refresh token в `SecureStore`, realtime cursor в `AsyncStorage`.
 - `giotto` остаётся единственным backend для guest site и staff app.
 - Staff web в `giotto` не считается продуктовым UI: `/manager*` и `/waiter*` остаются деприкейтнутыми.
-- Realtime в foreground идёт через SSE, background-уведомления waiter идут через Expo Push.
+- Realtime в foreground идёт через единый SSE provider, background-уведомления waiter идут через Expo Push.
 
 ## API surface used by the app
 
@@ -48,6 +48,7 @@
 - `POST /api/staff/waiter/tables/:tableId/orders`
 - `PATCH /api/staff/waiter/tables/:tableId/note`
 - `POST /api/staff/waiter/tables/:tableId/done`
+- `POST /api/staff/waiter/tables/:tableId/finish`
 
 ### Manager
 - `GET /api/staff/manager/hall`

@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { closeManagerTable, fetchManagerTable, reassignManagerTable } from "../../api/client";
 import { StatusBadge } from "../../components/StatusBadge";
-import { useStaffRealtime } from "../../realtime/useStaffRealtime";
+import { useRealtimeRefresh } from "../../realtime/useRealtimeRefresh";
 import { colors } from "../../theme/colors";
 import { formatDurationFrom, formatTime } from "../../theme/format";
 import type { ManagerTableDetail, RealtimeEvent } from "../../types/domain";
@@ -54,16 +54,13 @@ export function ManagerTablePanel({ tableId, onBack, onMutated }: Props) {
     return () => clearInterval(timer);
   }, [pull]);
 
-  const handleRealtime = useCallback(
-    (event: RealtimeEvent) => {
-      if (event.tableId !== tableId) return;
-      void pull(false);
+  const { connected, connecting } = useRealtimeRefresh({
+    filter: useCallback((event: RealtimeEvent) => event.tableId === tableId, [tableId]),
+    refresh: useCallback(async () => {
+      await pull(false);
       onMutated?.();
-    },
-    [onMutated, pull, tableId],
-  );
-
-  const { connected, connecting } = useStaffRealtime(handleRealtime);
+    }, [onMutated, pull]),
+  });
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

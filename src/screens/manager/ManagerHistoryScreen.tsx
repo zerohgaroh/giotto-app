@@ -5,7 +5,7 @@ import type { NavigationProp } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchManagerHistory } from "../../api/client";
 import type { ManagerStackParamList } from "../../navigation/types";
-import { useStaffRealtime } from "../../realtime/useStaffRealtime";
+import { useRealtimeRefresh } from "../../realtime/useRealtimeRefresh";
 import { colors } from "../../theme/colors";
 import { formatTime } from "../../theme/format";
 import type { ManagerHistoryEntry, ManagerHistoryPage } from "../../types/domain";
@@ -14,6 +14,7 @@ const FILTERS = [
   { id: "all", label: "Все" },
   { id: "waiter:called", label: "Вызов" },
   { id: "bill:requested", label: "Счёт" },
+  { id: "order:submitted_by_guest", label: "Заказ" },
   { id: "waiter:acknowledged", label: "Принято" },
   { id: "waiter:done", label: "Готово" },
   { id: "table:assignment_changed", label: "Назначение" },
@@ -26,6 +27,8 @@ function eventLabel(item: ManagerHistoryEntry) {
       return "Вызвали официанта";
     case "bill:requested":
       return "Запросили счёт";
+    case "order:submitted_by_guest":
+      return "Гость оформил заказ";
     case "waiter:acknowledged":
       return "Запрос принят";
     case "waiter:done":
@@ -81,13 +84,9 @@ export function ManagerHistoryScreen() {
     })();
   }, [pull]);
 
-  useStaffRealtime(
-    useCallback(() => {
-      void pull().catch(() => {
-        setErrorText("Не удалось обновить историю.");
-      });
-    }, [pull]),
-  );
+  useRealtimeRefresh({
+    refresh: pull,
+  });
 
   const onRefresh = async () => {
     setRefreshing(true);

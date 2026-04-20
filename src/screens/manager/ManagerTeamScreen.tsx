@@ -22,7 +22,7 @@ import {
   resetManagerWaiterPassword,
   updateManagerWaiter,
 } from "../../api/client";
-import { useStaffRealtime } from "../../realtime/useStaffRealtime";
+import { useRealtimeRefresh } from "../../realtime/useRealtimeRefresh";
 import { colors } from "../../theme/colors";
 import type { ManagerHallResponse, ManagerWaiterSummary } from "../../types/domain";
 
@@ -79,13 +79,9 @@ export function ManagerTeamScreen() {
     })();
   }, [pull]);
 
-  useStaffRealtime(
-    useCallback(() => {
-      void pull().catch(() => {
-        setErrorText("Не удалось обновить список.");
-      });
-    }, [pull]),
-  );
+  useRealtimeRefresh({
+    refresh: pull,
+  });
 
   const onRefresh = async () => {
     setRefreshing(true);

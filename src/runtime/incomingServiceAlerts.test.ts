@@ -35,3 +35,23 @@ test("createIncomingServiceAlert normalizes push payload fields", () => {
   assert.equal(alert?.message, "Гости готовы оплатить заказ.");
   assert.equal(alert?.dedupeKey, "5:bill");
 });
+
+test("createIncomingServiceAlertFromRealtime builds guest order alert payload", () => {
+  const alert = createIncomingServiceAlertFromRealtime({
+    id: "event-2",
+    type: "order:submitted_by_guest",
+    tableId: 7,
+    ts: 400,
+    payload: { itemCount: 3 },
+  });
+
+  assert.deepEqual(alert, {
+    id: "event-2",
+    dedupeKey: "7:order",
+    tableId: 7,
+    requestType: "order",
+    title: "Стол 7 оформил заказ",
+    message: "Гости отправили заказ из корзины.",
+    ts: 400,
+  });
+});

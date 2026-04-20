@@ -3,6 +3,7 @@ import type { ImagePickerAsset } from "expo-image-picker";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import { getAccessToken, setAccessToken, subscribeAccessToken } from "./accessTokenStore";
+import { shouldRefreshAccessToken } from "./tokenFreshness";
 import type {
   FloorZone,
   FloorTableSizePreset,
@@ -27,12 +28,14 @@ import type {
 } from "../types/domain";
 
 export { getAccessToken, setAccessToken, subscribeAccessToken } from "./accessTokenStore";
+export { shouldRefreshAccessToken } from "./tokenFreshness";
 
 const DEFAULT_PORT = "3000";
 const REFRESH_TOKEN_KEY = "giotto.mobile.refreshToken.v2";
 const REQUEST_TIMEOUT_MS = 25000;
 
 let refreshInFlight: Promise<StaffLoginResponse | null> | null = null;
+let accessTokenExpiresAtMemory = 0;
 
 function extractExpoHost(): string | null {
   const fromManifest2 = (Constants as unknown as {
@@ -162,13 +165,25 @@ function sleep(ms: number) {
 }
 
 async function persistAuth(response: StaffLoginResponse) {
+  accessTokenExpiresAtMemory = response.expiresAt;
   setAccessToken(response.accessToken);
   await writeRefreshToken(response.refreshToken);
 }
 
 export async function clearStoredAuth() {
+  accessTokenExpiresAtMemory = 0;
   setAccessToken(null);
   await clearRefreshToken();
+}
+
+export async function ensureFreshAccessToken(minTtlMs = 60_000) {
+  const current = getAccessToken();
+  if (current && !shouldRefreshAccessToken(accessTokenExpiresAtMemory, Date.now(), minTtlMs)) {
+    return current;
+  }
+
+  const refreshed = await refreshAccessToken();
+  return refreshed?.accessToken ?? getAccessToken();
 }
 
 async function rawRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -358,6 +373,13 @@ export async function doneWaiter(tableId: number) {
   });
 }
 
+export async function finishWaiterTable(tableId: number, mutationKey?: string) {
+  return request<WaiterTableDetailResponse>(`/api/staff/waiter/tables/${tableId}/finish`, {
+    method: "POST",
+    body: JSON.stringify({ mutationKey }),
+  });
+}
+
 export async function setTableNote(tableId: number, note: string) {
   return request<WaiterTableDetailResponse>(`/api/staff/waiter/tables/${tableId}/note`, {
     method: "PATCH",
@@ -428,6 +450,17 @@ export async function fetchManagerHistory(params: {
 }) {
   return request<ManagerHistoryPage>("/api/staff/manager/history", {
     query: params,
+  });
+}
+
+export async function fetchManagerRestaurantSettings() {
+  return request<RestaurantData>("/api/staff/manager/restaurant");
+}
+
+export async function updateManagerRestaurantSettings(payload: RestaurantData["profile"]) {
+  return request<RestaurantData>("/api/staff/manager/restaurant", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
   });
 }
 

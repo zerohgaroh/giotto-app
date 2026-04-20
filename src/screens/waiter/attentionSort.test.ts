@@ -29,22 +29,22 @@ test("sortWaiterQueueTasks puts highlighted and newest urgent calls first", () =
       id: "task-3",
       tableId: 9,
       tableSessionId: "session-3",
-      type: "follow_up",
-      priority: "normal",
+      type: "guest_order",
+      priority: "urgent",
       status: "open",
-      title: "Normal",
+      title: "Guest order",
       createdAt: 300,
     },
   ];
 
   assert.deepEqual(
     sortWaiterQueueTasks(tasks, 5).map((task) => task.id),
-    ["task-1", "task-2", "task-3"],
+    ["task-1", "task-3", "task-2"],
   );
 
   assert.deepEqual(
     sortWaiterQueueTasks(tasks).map((task) => task.id),
-    ["task-2", "task-1", "task-3"],
+    ["task-3", "task-2", "task-1"],
   );
 });
 
@@ -88,10 +88,18 @@ test("sortWaiterTables puts the latest active request first", () => {
         createdAt: 200,
       },
     },
+    {
+      tableId: 9,
+      status: "ordered",
+      guestStartedAt: 40,
+      hasActiveSession: true,
+      openTasksCount: 2,
+      urgentTasksCount: 1,
+    },
   ];
 
   assert.deepEqual(
     sortWaiterTables(tables).map((table) => table.tableId),
-    [4, 2, 7],
+    [4, 2, 9, 7],
   );
 });

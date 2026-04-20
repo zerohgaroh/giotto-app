@@ -1,113 +1,26 @@
-import { AppState, type AppStateStatus } from "react-native";
-import { useEffect, useRef, useState } from "react";
-import EventSource, { type CustomEvent, type ErrorEvent, type ExceptionEvent, type TimeoutEvent } from "react-native-sse";
-import { API_BASE_URL, getAccessToken, subscribeAccessToken } from "../api/client";
+import { useEffect, useRef } from "react";
 import type { RealtimeEvent } from "../types/domain";
-
-type StaffRealtimeEventName = RealtimeEvent["type"] | "ready";
-
-const EVENT_NAMES: RealtimeEvent["type"][] = [
-  "waiter:called",
-  "bill:requested",
-  "waiter:acknowledged",
-  "waiter:done",
-  "order:added_by_waiter",
-  "review:submitted",
-  "task:created",
-  "task:updated",
-  "task:completed",
-  "shift:summary_changed",
-  "table:status_changed",
-  "table:assignment_changed",
-  "menu:changed",
-  "table:created",
-  "table:archived",
-  "table:restored",
-  "floor:layout_changed",
-  "waiter:created",
-  "waiter:updated",
-  "waiter:deactivated",
-  "waiter:password_reset",
-];
+import { useRealtime } from "./RealtimeProvider";
 
 export function useStaffRealtime(onEvent: (event: RealtimeEvent) => void) {
-  const [connected, setConnected] = useState(false);
-  const [connecting, setConnecting] = useState(true);
-  const [token, setToken] = useState<string | null>(() => getAccessToken());
-  const [reconnectNonce, setReconnectNonce] = useState(0);
+  const realtime = useRealtime();
   const onEventRef = useRef(onEvent);
-  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
     onEventRef.current = onEvent;
   }, [onEvent]);
 
-  useEffect(() => subscribeAccessToken(setToken), []);
+  useEffect(
+    () =>
+      realtime.subscribe((event) => {
+        onEventRef.current(event);
+      }),
+    [realtime],
+  );
 
-  useEffect(() => {
-    const subscription = AppState.addEventListener("change", (nextState) => {
-      const previous = appStateRef.current;
-      appStateRef.current = nextState;
-
-      if ((previous === "background" || previous === "inactive") && nextState === "active") {
-        setReconnectNonce((current) => current + 1);
-      }
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!token) {
-      setConnected(false);
-      setConnecting(false);
-      return;
-    }
-
-    setConnecting(true);
-    const streamUrl = `${API_BASE_URL}/api/staff/realtime/stream?accessToken=${encodeURIComponent(token)}`;
-
-    const source = new EventSource<StaffRealtimeEventName>(streamUrl, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-      timeout: 0,
-      pollingInterval: 5_000,
-    });
-
-    const markConnected = () => {
-      setConnected(true);
-      setConnecting(false);
-    };
-    const handleError = (_event: ErrorEvent | TimeoutEvent | ExceptionEvent) => {
-      setConnected(false);
-      setConnecting(false);
-    };
-
-    source.addEventListener("open", markConnected);
-    source.addEventListener("error", handleError);
-    source.addEventListener("ready", markConnected);
-
-    for (const eventName of EVENT_NAMES) {
-      source.addEventListener(eventName, (event: CustomEvent<typeof eventName>) => {
-        if (!event.data) return;
-        try {
-          onEventRef.current(JSON.parse(event.data) as RealtimeEvent);
-        } catch {
-          // ignore malformed payloads
-        }
-      });
-    }
-
-    return () => {
-      setConnected(false);
-      setConnecting(true);
-      source.removeAllEventListeners();
-      source.close();
-    };
-  }, [token, reconnectNonce]);
-
-  return { connected, connecting };
+  return {
+    connected: realtime.connected,
+    connecting: realtime.connecting,
+    error: realtime.error,
+  };
 }

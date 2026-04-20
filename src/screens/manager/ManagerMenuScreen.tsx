@@ -28,10 +28,10 @@ import {
   updateManagerDish,
   uploadManagerMenuImage,
 } from "../../api/client";
-import { useStaffRealtime } from "../../realtime/useStaffRealtime";
+import { useRealtimeRefresh } from "../../realtime/useRealtimeRefresh";
 import { colors } from "../../theme/colors";
 import { formatPrice } from "../../theme/format";
-import type { Dish, ManagerMenuSnapshot, MenuCategory, MenuImageDraftState } from "../../types/domain";
+import type { Dish, ManagerMenuSnapshot, MenuCategory, MenuImageDraftState, RealtimeEvent } from "../../types/domain";
 import { getOptimizedMenuImageUrl } from "../../utils/menuImage";
 import {
   BADGE_TONE_OPTIONS,
@@ -233,7 +233,7 @@ export function ManagerMenuScreen() {
     setMenu(next);
     setSelectedCategoryId((current) => {
       if (current && next.categories.some((category) => category.id === current)) return current;
-      return next.categories[0]?.id ?? null;
+      return null;
     });
   }, []);
 
@@ -251,18 +251,10 @@ export function ManagerMenuScreen() {
     })();
   }, [pull]);
 
-  const { connected, connecting } = useStaffRealtime(
-    useCallback(
-      (event) => {
-        if (event.type === "menu:changed") {
-          void pull().catch(() => {
-            setErrorText("Не удалось обновить меню.");
-          });
-        }
-      },
-      [pull],
-    ),
-  );
+  const { connected, connecting } = useRealtimeRefresh({
+    filter: useCallback((event: RealtimeEvent) => event.type === "menu:changed", []),
+    refresh: pull,
+  });
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -359,7 +351,7 @@ export function ManagerMenuScreen() {
                 const next = await deleteManagerCategory(category.id);
                 setMenu(next);
                 setErrorText("");
-                setSelectedCategoryId(next.categories[0]?.id ?? null);
+                setSelectedCategoryId(null);
               } catch {
                 setErrorText("Не удалось удалить категорию.");
               }
@@ -567,6 +559,24 @@ export function ManagerMenuScreen() {
         </View>
       ) : null}
 
+      {!loading && (menu?.categories.length ?? 0) > 0 ? (
+        <Pressable
+          style={[styles.categoryCard, selectedCategoryId === null && isTablet ? styles.categoryCardActive : null]}
+          onPress={() => setSelectedCategoryId(null)}
+        >
+          <View style={styles.categoryCover}>
+            <Ionicons name="grid-outline" size={28} color={colors.navy} />
+          </View>
+          <View style={styles.categoryCopy}>
+            <Text style={styles.categoryTitle}>Все меню</Text>
+            <Text style={styles.categoryHint}>{menu?.dishes.length ?? 0} блюд во всех категориях</Text>
+          </View>
+          <View style={styles.categoryActions}>
+            <Ionicons name="chevron-forward-outline" size={18} color={colors.navyDeep} />
+          </View>
+        </Pressable>
+      ) : null}
+
       {(menu?.categories ?? []).map((category) => {
         const dishesCount = dishCounts[category.id] || 0;
         const cover = getCategoryCoverImage(menu, category.id);
@@ -733,12 +743,68 @@ export function ManagerMenuScreen() {
       </ScrollView>
     </View>
   ) : (
-    <View style={styles.emptyStateLarge}>
-      <View style={styles.emptyIcon}>
-        <Ionicons name="albums-outline" size={26} color={colors.navy} />
+    <ScrollView
+      style={styles.detailScroll}
+      contentContainerStyle={styles.listContent}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.detailHeader}>
+        <View style={styles.detailHeaderMain}>
+          <View style={styles.detailHeaderCopy}>
+            <Text style={styles.detailTitle}>Все меню</Text>
+            <Text style={styles.subtitle}>
+              {(menu?.categories.length ?? 0)} категорий · {(menu?.dishes.length ?? 0)} блюд
+            </Text>
+          </View>
+        </View>
       </View>
-      <Text style={styles.emptyTitle}>Выбери категорию</Text>
-    </View>
+
+      {!loading && !connected && !connecting ? (
+        <Banner tone="warning" text="Нет live-обновлений. Меню можно обновить вручную." />
+      ) : null}
+      {errorText ? <Banner tone="error" text={errorText} /> : null}
+
+      {(menu?.categories.length ?? 0) === 0 ? (
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIcon}>
+            <Ionicons name="albums-outline" size={26} color={colors.navy} />
+          </View>
+          <Text style={styles.emptyTitle}>Категорий пока нет</Text>
+          <Pressable style={styles.primaryButton} onPress={openCreateCategory}>
+            <Ionicons name="add" size={18} color={colors.white} />
+            <Text style={styles.primaryButtonText}>Добавить категорию</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {(menu?.categories ?? []).map((category) => (
+        <View key={category.id} style={styles.overviewSection}>
+          <View style={styles.overviewSectionHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>{category.labelRu}</Text>
+              <Text style={styles.categoryHint}>{dishCounts[category.id] || 0} блюд</Text>
+            </View>
+            <Pressable style={styles.secondaryButton} onPress={() => setSelectedCategoryId(category.id)}>
+              <Ionicons name="open-outline" size={18} color={colors.navy} />
+            </Pressable>
+          </View>
+          {(menu?.dishes ?? [])
+            .filter((dish) => dish.category === category.id)
+            .slice(0, 4)
+            .map((dish) => (
+              <Pressable key={dish.id} style={styles.overviewDishRow} onPress={() => openEditDish(dish)}>
+                <Image source={{ uri: getOptimizedMenuImageUrl(dish.image, 256) }} style={styles.overviewDishImage} />
+                <View style={styles.overviewDishCopy}>
+                  <Text style={styles.overviewDishTitle} numberOfLines={1}>{dish.nameRu}</Text>
+                  <Text style={styles.categoryHint}>{formatPrice(dish.price)}</Text>
+                </View>
+                <Ionicons name="create-outline" size={18} color={colors.navyDeep} />
+              </Pressable>
+            ))}
+        </View>
+      ))}
+    </ScrollView>
   );
 
   const categoryModal = (
@@ -1303,6 +1369,51 @@ const styles = StyleSheet.create({
   },
   detailScroll: {
     flex: 1,
+  },
+  overviewSection: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "#D9D2C6",
+    backgroundColor: colors.white,
+    padding: 14,
+    gap: 10,
+  },
+  overviewSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  sectionTitle: {
+    color: colors.navyDeep,
+    fontSize: 20,
+    fontWeight: "800",
+  },
+  overviewDishRow: {
+    minHeight: 62,
+    borderRadius: 18,
+    backgroundColor: "#FFFDF8",
+    borderWidth: 1,
+    borderColor: colors.line,
+    padding: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  overviewDishImage: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: "#ECE7DE",
+  },
+  overviewDishCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  overviewDishTitle: {
+    color: colors.navyDeep,
+    fontSize: 15,
+    fontWeight: "800",
   },
   dishCard: {
     borderRadius: 24,
