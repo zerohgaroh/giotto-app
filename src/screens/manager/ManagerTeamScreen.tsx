@@ -1,6 +1,9 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   SafeAreaView,
@@ -52,6 +55,8 @@ export function ManagerTeamScreen() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [passwordResetFor, setPasswordResetFor] = useState<ManagerWaiterSummary | null>(null);
   const [passwordDraft, setPasswordDraft] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [resetPasswordVisible, setResetPasswordVisible] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const pull = useCallback(async () => {
@@ -94,6 +99,7 @@ export function ManagerTeamScreen() {
 
   const openCreate = () => {
     setEditor(emptyEditor());
+    setPasswordVisible(false);
     setEditorOpen(true);
   };
 
@@ -106,7 +112,14 @@ export function ManagerTeamScreen() {
       active: waiter.active,
       tableIds: waiter.tableIds,
     });
+    setPasswordVisible(false);
     setEditorOpen(true);
+  };
+
+  const openPasswordReset = (waiter: ManagerWaiterSummary) => {
+    setPasswordDraft("");
+    setResetPasswordVisible(false);
+    setPasswordResetFor(waiter);
   };
 
   const activeTableIds = useMemo(() => hall?.tables.map((table) => table.tableId).sort((a, b) => a - b) ?? [], [hall?.tables]);
@@ -197,7 +210,7 @@ export function ManagerTeamScreen() {
               <Pressable style={styles.secondaryButton} onPress={() => openEdit(waiter)}>
                 <Text style={styles.secondaryButtonText}>Изменить</Text>
               </Pressable>
-              <Pressable style={styles.secondaryButton} onPress={() => setPasswordResetFor(waiter)}>
+              <Pressable style={styles.secondaryButton} onPress={() => openPasswordReset(waiter)}>
                 <Text style={styles.secondaryButtonText}>Сменить пароль</Text>
               </Pressable>
             </View>
@@ -207,95 +220,165 @@ export function ManagerTeamScreen() {
 
       <Modal visible={editorOpen} animationType="slide" onRequestClose={() => setEditorOpen(false)}>
         <SafeAreaView style={styles.modalArea}>
-          <ScrollView contentContainerStyle={styles.modalContent}>
-            <Text style={styles.modalTitle}>{editor.waiterId ? "Официант" : "Новый официант"}</Text>
-            <TextInput
-              value={editor.name}
-              onChangeText={(name) => setEditor((current) => ({ ...current, name }))}
-              placeholder="Имя"
-              style={styles.input}
-            />
-            <TextInput
-              value={editor.login}
-              onChangeText={(login) => setEditor((current) => ({ ...current, login }))}
-              placeholder="Логин"
-              autoCapitalize="none"
-              style={styles.input}
-            />
-            {!editor.waiterId ? (
-              <TextInput
-                value={editor.password}
-                onChangeText={(password) => setEditor((current) => ({ ...current, password }))}
-                placeholder="Пароль"
-                secureTextEntry
-                style={styles.input}
-              />
-            ) : null}
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
+            style={styles.flex}
+          >
+            <ScrollView contentContainerStyle={styles.modalContent} keyboardShouldPersistTaps="handled">
+              <Text style={styles.modalTitle}>{editor.waiterId ? "Официант" : "Новый официант"}</Text>
 
-            <View style={styles.switchRow}>
-              <Text style={styles.switchLabel}>Аккаунт активен</Text>
-              <Switch
-                value={editor.active}
-                onValueChange={(active) => setEditor((current) => ({ ...current, active }))}
-              />
-            </View>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Имя</Text>
+                <TextInput
+                  value={editor.name}
+                  onChangeText={(name) => setEditor((current) => ({ ...current, name }))}
+                  placeholder="Имя"
+                  placeholderTextColor="#8A847A"
+                  returnKeyType="next"
+                  style={styles.input}
+                />
+              </View>
 
-            <Text style={styles.sectionLabel}>Столы</Text>
-            <View style={styles.tableChips}>
-              {activeTableIds.map((tableId) => {
-                const selected = editor.tableIds.includes(tableId);
-                return (
-                  <Pressable
-                    key={tableId}
-                    style={[styles.tableChip, selected && styles.tableChipActive]}
-                    onPress={() =>
-                      setEditor((current) => ({
-                        ...current,
-                        tableIds: selected
-                          ? current.tableIds.filter((candidate) => candidate !== tableId)
-                          : [...current.tableIds, tableId].sort((a, b) => a - b),
-                      }))
-                    }
-                  >
-                    <Text style={[styles.tableChipText, selected && styles.tableChipTextActive]}>#{tableId}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Логин</Text>
+                <TextInput
+                  value={editor.login}
+                  onChangeText={(login) => setEditor((current) => ({ ...current, login }))}
+                  placeholder="Логин"
+                  placeholderTextColor="#8A847A"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType={editor.waiterId ? "done" : "next"}
+                  style={styles.input}
+                />
+              </View>
 
-            <View style={styles.modalActions}>
-              <Pressable style={styles.secondaryButton} onPress={() => setEditorOpen(false)}>
-                <Text style={styles.secondaryButtonText}>Отмена</Text>
-              </Pressable>
-              <Pressable style={styles.primaryButton} onPress={() => void saveEditor()} disabled={saving}>
-                <Text style={styles.primaryButtonText}>{saving ? "..." : "Сохранить"}</Text>
-              </Pressable>
-            </View>
-          </ScrollView>
+              {!editor.waiterId ? (
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.fieldLabel}>Пароль</Text>
+                  <View style={styles.passwordInputWrap}>
+                    <TextInput
+                      value={editor.password}
+                      onChangeText={(password) => setEditor((current) => ({ ...current, password }))}
+                      placeholder="Пароль"
+                      placeholderTextColor="#8A847A"
+                      secureTextEntry={!passwordVisible}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="done"
+                      style={[styles.input, styles.passwordInput]}
+                    />
+                    <Pressable
+                      accessibilityLabel={passwordVisible ? "Скрыть пароль" : "Показать пароль"}
+                      hitSlop={10}
+                      style={styles.eyeButton}
+                      onPress={() => setPasswordVisible((visible) => !visible)}
+                    >
+                      <Ionicons
+                        name={passwordVisible ? "eye-off-outline" : "eye-outline"}
+                        size={22}
+                        color={colors.navy}
+                      />
+                    </Pressable>
+                  </View>
+                </View>
+              ) : null}
+
+              <View style={styles.switchRow}>
+                <Text style={styles.switchLabel}>Аккаунт активен</Text>
+                <Switch
+                  value={editor.active}
+                  onValueChange={(active) => setEditor((current) => ({ ...current, active }))}
+                />
+              </View>
+
+              <Text style={styles.sectionLabel}>Столы</Text>
+              <View style={styles.tableChips}>
+                {activeTableIds.map((tableId) => {
+                  const selected = editor.tableIds.includes(tableId);
+                  return (
+                    <Pressable
+                      key={tableId}
+                      style={[styles.tableChip, selected && styles.tableChipActive]}
+                      onPress={() =>
+                        setEditor((current) => ({
+                          ...current,
+                          tableIds: selected
+                            ? current.tableIds.filter((candidate) => candidate !== tableId)
+                            : [...current.tableIds, tableId].sort((a, b) => a - b),
+                        }))
+                      }
+                    >
+                      <Text style={[styles.tableChipText, selected && styles.tableChipTextActive]}>#{tableId}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <View style={styles.modalActions}>
+                <Pressable style={styles.secondaryButton} onPress={() => setEditorOpen(false)}>
+                  <Text style={styles.secondaryButtonText}>Отмена</Text>
+                </Pressable>
+                <Pressable style={styles.primaryButton} onPress={() => void saveEditor()} disabled={saving}>
+                  <Text style={styles.primaryButtonText}>{saving ? "..." : "Сохранить"}</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
 
       <Modal visible={!!passwordResetFor} animationType="slide" onRequestClose={() => setPasswordResetFor(null)}>
         <SafeAreaView style={styles.modalArea}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Новый пароль</Text>
-            <Text style={styles.cardMeta}>{passwordResetFor?.name}</Text>
-            <TextInput
-              value={passwordDraft}
-              onChangeText={setPasswordDraft}
-              placeholder="Пароль"
-              secureTextEntry
-              style={styles.input}
-            />
-            <View style={styles.modalActions}>
-              <Pressable style={styles.secondaryButton} onPress={() => setPasswordResetFor(null)}>
-                <Text style={styles.secondaryButtonText}>Отмена</Text>
-              </Pressable>
-              <Pressable style={styles.primaryButton} onPress={() => void submitPasswordReset()} disabled={saving}>
-                <Text style={styles.primaryButtonText}>{saving ? "..." : "Сохранить"}</Text>
-              </Pressable>
-            </View>
-          </View>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
+            style={styles.flex}
+          >
+            <ScrollView contentContainerStyle={styles.modalContent} keyboardShouldPersistTaps="handled">
+              <Text style={styles.modalTitle}>Новый пароль</Text>
+              <Text style={styles.cardMeta}>{passwordResetFor?.name}</Text>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Пароль</Text>
+                <View style={styles.passwordInputWrap}>
+                  <TextInput
+                    value={passwordDraft}
+                    onChangeText={setPasswordDraft}
+                    placeholder="Пароль"
+                    placeholderTextColor="#8A847A"
+                    secureTextEntry={!resetPasswordVisible}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="done"
+                    style={[styles.input, styles.passwordInput]}
+                  />
+                  <Pressable
+                    accessibilityLabel={resetPasswordVisible ? "Скрыть пароль" : "Показать пароль"}
+                    hitSlop={10}
+                    style={styles.eyeButton}
+                    onPress={() => setResetPasswordVisible((visible) => !visible)}
+                  >
+                    <Ionicons
+                      name={resetPasswordVisible ? "eye-off-outline" : "eye-outline"}
+                      size={22}
+                      color={colors.navy}
+                    />
+                  </Pressable>
+                </View>
+              </View>
+
+              <View style={styles.modalActions}>
+                <Pressable style={styles.secondaryButton} onPress={() => setPasswordResetFor(null)}>
+                  <Text style={styles.secondaryButtonText}>Отмена</Text>
+                </Pressable>
+                <Pressable style={styles.primaryButton} onPress={() => void submitPasswordReset()} disabled={saving}>
+                  <Text style={styles.primaryButtonText}>{saving ? "..." : "Сохранить"}</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
+          </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
@@ -303,6 +386,9 @@ export function ManagerTeamScreen() {
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   safeArea: {
     flex: 1,
     backgroundColor: colors.cream,
@@ -420,6 +506,7 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     padding: 16,
+    paddingBottom: 40,
     gap: 12,
   },
   modalTitle: {
@@ -435,6 +522,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     color: colors.text,
+  },
+  fieldGroup: {
+    gap: 6,
+  },
+  fieldLabel: {
+    color: colors.navyDeep,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  passwordInputWrap: {
+    position: "relative",
+  },
+  passwordInput: {
+    paddingRight: 48,
+  },
+  eyeButton: {
+    position: "absolute",
+    right: 12,
+    top: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
   },
   switchRow: {
     flexDirection: "row",

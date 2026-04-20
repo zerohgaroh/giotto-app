@@ -103,16 +103,16 @@ export function ManagerTablePanel({ tableId, onBack, onMutated }: Props) {
   }, [onMutated, tableId]);
 
   const openGuestLink = useCallback(async () => {
-    if (!data?.guestLink.url) return;
+    if (!data?.guestLink?.url) return;
     try {
       await Linking.openURL(data.guestLink.url);
     } catch {
       setErrorText("Не удалось открыть ссылку.");
     }
-  }, [data?.guestLink.url]);
+  }, [data?.guestLink?.url]);
 
   const shareGuestLink = useCallback(async () => {
-    if (!data?.guestLink.url) return;
+    if (!data?.guestLink?.url) return;
     try {
       await Share.share({
         message: data.guestLink.url,
@@ -121,9 +121,12 @@ export function ManagerTablePanel({ tableId, onBack, onMutated }: Props) {
     } catch {
       setErrorText("Не удалось поделиться ссылкой.");
     }
-  }, [data?.guestLink.url]);
+  }, [data?.guestLink?.url]);
 
-  const activeRequests = useMemo(() => data.requests.filter((request) => !request.resolvedAt), [data.requests]);
+  const requests = data?.requests ?? [];
+  const availableWaiters = data?.availableWaiters ?? [];
+  const guestLinkUrl = data?.guestLink?.url ?? "";
+  const activeRequests = useMemo(() => requests.filter((request) => !request.resolvedAt), [requests]);
 
   if (loading || !data) {
     return (
@@ -169,15 +172,15 @@ export function ManagerTablePanel({ tableId, onBack, onMutated }: Props) {
         <Text style={styles.metaText}>Эта ссылка работает постоянно для этого стола.</Text>
         <View style={styles.linkBox}>
           <Text style={styles.linkText} selectable>
-            {data.guestLink.url}
+            {guestLinkUrl || "Ссылка пока недоступна."}
           </Text>
         </View>
         <View style={styles.linkActions}>
-          <Pressable style={styles.secondaryWideButton} onPress={() => void openGuestLink()}>
+          <Pressable style={styles.secondaryWideButton} onPress={() => void openGuestLink()} disabled={!guestLinkUrl}>
             <Ionicons name="open-outline" size={18} color={colors.navy} />
             <Text style={styles.secondaryWideButtonText}>Открыть</Text>
           </Pressable>
-          <Pressable style={styles.secondaryWideButton} onPress={() => void shareGuestLink()}>
+          <Pressable style={styles.secondaryWideButton} onPress={() => void shareGuestLink()} disabled={!guestLinkUrl}>
             <Ionicons name="share-social-outline" size={18} color={colors.navy} />
             <Text style={styles.secondaryWideButtonText}>Поделиться</Text>
           </Pressable>
@@ -189,7 +192,7 @@ export function ManagerTablePanel({ tableId, onBack, onMutated }: Props) {
         <Text style={styles.metaText}>
           Официант:{" "}
           {data.assignedWaiterId
-            ? data.availableWaiters.find((waiter) => waiter.id === data.assignedWaiterId)?.name || data.assignedWaiterId
+            ? availableWaiters.find((waiter) => waiter.id === data.assignedWaiterId)?.name || data.assignedWaiterId
             : "Не назначен"}
         </Text>
         <View style={styles.chips}>
@@ -206,7 +209,7 @@ export function ManagerTablePanel({ tableId, onBack, onMutated }: Props) {
               Снять
             </Text>
           </Pressable>
-          {data.availableWaiters.map((waiter) => (
+          {availableWaiters.map((waiter) => (
             <Pressable
               key={waiter.id}
               style={[
