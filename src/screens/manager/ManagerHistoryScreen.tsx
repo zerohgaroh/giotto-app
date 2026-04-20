@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Pressable, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NavigationProp } from "@react-navigation/native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchManagerHistory } from "../../api/client";
 import type { ManagerStackParamList } from "../../navigation/types";
 import { useRealtimeRefresh } from "../../realtime/useRealtimeRefresh";
@@ -42,6 +43,10 @@ function eventLabel(item: ManagerHistoryEntry) {
       return "Обновили задачу";
     case "task:completed":
       return "Задача закрыта";
+    case "restaurant:updated":
+      return "Обновили ресторан";
+    case "shift:summary_changed":
+      return "Обновили сводку смены";
     default:
       return item.type;
   }
@@ -125,7 +130,7 @@ export function ManagerHistoryScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.header}>
         <Text style={styles.title}>История</Text>
       </View>

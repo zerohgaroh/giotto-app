@@ -9,7 +9,6 @@ import {
   Platform,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -17,6 +16,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   createManagerCategory,
   createManagerDish,
@@ -1050,7 +1050,7 @@ export function ManagerMenuScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.screen}>
         {isTablet ? (
           <View style={styles.tabletShell}>
@@ -1070,7 +1070,7 @@ export function ManagerMenuScreen() {
 
         {!isTablet ? (
           <Modal visible={dishEditorOpen} animationType="slide" onRequestClose={closeDishEditor}>
-            <SafeAreaView style={styles.safeArea}>
+            <SafeAreaView style={styles.safeArea} edges={["top"]}>
               <KeyboardAvoidingView style={styles.modalScreen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
                 {dishEditorContent}
               </KeyboardAvoidingView>

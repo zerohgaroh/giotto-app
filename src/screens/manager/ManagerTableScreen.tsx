@@ -1,5 +1,6 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { SafeAreaView, StyleSheet } from "react-native";
+import { StyleSheet } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import type { ManagerStackParamList } from "../../navigation/types";
 import { colors } from "../../theme/colors";
 import { ManagerTablePanel } from "./ManagerTablePanel";
@@ -8,7 +9,7 @@ type Props = NativeStackScreenProps<ManagerStackParamList, "ManagerTable">;
 
 export function ManagerTableScreen({ navigation, route }: Props) {
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <ManagerTablePanel tableId={route.params.tableId} onBack={() => navigation.goBack()} />
     </SafeAreaView>
   );
@@ -20,4 +21,3 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cream,
   },
 });
-

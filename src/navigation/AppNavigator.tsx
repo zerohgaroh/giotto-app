@@ -1,6 +1,7 @@
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { ActivityIndicator, SafeAreaView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "../context/AuthContext";
 import { LoginScreen } from "../screens/LoginScreen";
 import { colors } from "../theme/colors";
@@ -28,7 +29,7 @@ export function AppNavigator() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.loaderArea}>
+      <SafeAreaView style={styles.loaderArea} edges={["top"]}>
         <View style={styles.loaderCenter}>
           <ActivityIndicator color={colors.navy} />
         </View>
