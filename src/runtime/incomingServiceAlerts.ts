@@ -1,10 +1,12 @@
 import type { RealtimeEvent, ServiceRequestType } from "../types/domain";
 
+export type IncomingServiceAlertType = ServiceRequestType | "order";
+
 export type IncomingServiceAlert = {
   id: string;
   dedupeKey: string;
   tableId: number;
-  requestType: ServiceRequestType;
+  requestType: IncomingServiceAlertType;
   title: string;
   message: string;
   ts: number;
@@ -16,19 +18,22 @@ function normalizeTableId(value: unknown) {
   return Math.floor(parsed);
 }
 
-function normalizeRequestType(value: unknown): ServiceRequestType | null {
+function normalizeRequestType(value: unknown): IncomingServiceAlertType | null {
   if (value === "bill" || value === "bill:requested") return "bill";
   if (value === "waiter" || value === "waiter:called") return "waiter";
+  if (value === "order" || value === "order:submitted_by_guest") return "order";
   return null;
 }
 
-function buildTitle(tableId: number, requestType: ServiceRequestType) {
+function buildTitle(tableId: number, requestType: IncomingServiceAlertType) {
+  if (requestType === "order") return `Стол ${tableId} оформил заказ`;
   return requestType === "bill" ? `Стол ${tableId} просит счёт` : `Стол ${tableId} вызывает официанта`;
 }
 
-function buildMessage(requestType: ServiceRequestType, reason?: string) {
+function buildMessage(requestType: IncomingServiceAlertType, reason?: string) {
   const normalizedReason = typeof reason === "string" ? reason.trim() : "";
   if (normalizedReason) return normalizedReason;
+  if (requestType === "order") return "Гости отправили заказ из корзины.";
   return requestType === "bill" ? "Гости готовы оплатить заказ." : "Гости ждут официанта.";
 }
 
@@ -56,7 +61,7 @@ export function createIncomingServiceAlert(input: {
 }
 
 export function createIncomingServiceAlertFromRealtime(event: RealtimeEvent) {
-  if (event.type !== "waiter:called" && event.type !== "bill:requested") {
+  if (event.type !== "waiter:called" && event.type !== "bill:requested" && event.type !== "order:submitted_by_guest") {
     return null;
   }
 
@@ -64,7 +69,7 @@ export function createIncomingServiceAlertFromRealtime(event: RealtimeEvent) {
     id: event.id,
     tableId: event.tableId,
     requestType: event.type,
-    reason: event.payload?.reason,
+    reason: event.payload?.reason ?? event.payload?.message,
     ts: event.ts,
   });
 }

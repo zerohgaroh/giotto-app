@@ -18,6 +18,7 @@ export type ManagerTabParamList = {
   ManagerTeam: undefined;
   ManagerMenu: undefined;
   ManagerLayout: undefined;
+  ManagerSettings: undefined;
 };
 
 export type ManagerStackParamList = {

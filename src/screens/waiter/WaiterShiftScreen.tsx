@@ -13,10 +13,11 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { fetchWaiterQueue, fetchWaiterShiftSummary } from "../../api/client";
 import type { WaiterTabParamList } from "../../navigation/types";
-import { useWaiterRealtime } from "../../realtime/useWaiterRealtime";
+import { useRealtimeRefresh } from "../../realtime/useRealtimeRefresh";
 import { colors } from "../../theme/colors";
 import { formatDurationFrom } from "../../theme/format";
 import type { WaiterQueueResponse, WaiterShiftSummary } from "../../types/domain";
+import { getVisibleWaiterTasks } from "./waiterBusiness";
 
 type Props = BottomTabScreenProps<WaiterTabParamList, "WaiterShift">;
 
@@ -42,11 +43,9 @@ export function WaiterShiftScreen(_props: Props) {
     }
   }, []);
 
-  const handleRealtimeEvent = useCallback(() => {
-    void pull(false);
-  }, [pull]);
-
-  const { connected } = useWaiterRealtime(handleRealtimeEvent);
+  const { connected } = useRealtimeRefresh({
+    refresh: useCallback(() => pull(false), [pull]),
+  });
 
   useEffect(() => {
     void pull(true);
@@ -68,11 +67,12 @@ export function WaiterShiftScreen(_props: Props) {
 
   const chartData = useMemo(() => {
     if (!summary || !queue) return [];
+    const visibleTasks = getVisibleWaiterTasks(queue.tasks);
     return [
-      { label: "Вызовы", value: queue.tasks.length },
+      { label: "Новые задачи", value: visibleTasks.length },
       { label: "Срочные", value: queue.summary.urgentCount },
-      { label: "Закрыто задач", value: summary.tasksHandled },
-      { label: "Обслужено", value: summary.serviceCompletedCount },
+      { label: "Выполнено", value: summary.tasksHandled },
+      { label: "Закрыто столов", value: summary.serviceCompletedCount },
     ];
   }, [queue, summary]);
 
@@ -106,7 +106,7 @@ export function WaiterShiftScreen(_props: Props) {
           <View style={styles.grid}>
             <View style={styles.metricCard}>
               <Text style={styles.metricValue}>{summary.tasksHandled}</Text>
-              <Text style={styles.metricLabel}>Закрыто задач</Text>
+              <Text style={styles.metricLabel}>Выполнено</Text>
             </View>
             <View style={styles.metricCard}>
               <Text style={styles.metricValue}>{summary.avgResponseSec}s</Text>
@@ -122,7 +122,7 @@ export function WaiterShiftScreen(_props: Props) {
             </View>
             <View style={styles.metricCard}>
               <Text style={styles.metricValue}>{summary.serviceCompletedCount}</Text>
-              <Text style={styles.metricLabel}>Обслужено</Text>
+              <Text style={styles.metricLabel}>Закрыто столов</Text>
             </View>
           </View>
         ) : null}
@@ -149,8 +149,8 @@ export function WaiterShiftScreen(_props: Props) {
           <Text style={styles.cardTitle}>Состояние очереди</Text>
           <View style={styles.queueStatsRow}>
             <View style={styles.queueStatBox}>
-              <Text style={styles.queueStatValue}>{queue?.summary.inProgressCount ?? 0}</Text>
-              <Text style={styles.queueStatLabel}>В работе</Text>
+              <Text style={styles.queueStatValue}>{queue ? getVisibleWaiterTasks(queue.tasks).length : 0}</Text>
+              <Text style={styles.queueStatLabel}>Новые задачи</Text>
             </View>
             <View style={styles.queueStatBox}>
               <Text style={styles.queueStatValue}>{queue?.summary.urgentCount ?? 0}</Text>

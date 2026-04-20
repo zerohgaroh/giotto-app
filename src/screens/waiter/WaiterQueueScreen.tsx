@@ -12,42 +12,23 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { ackWaiterTask, completeWaiterTask, fetchWaiterQueue, startWaiterTask } from "../../api/client";
+import { completeWaiterTask, fetchWaiterQueue } from "../../api/client";
 import type { WaiterStackParamList, WaiterTabParamList } from "../../navigation/types";
-import { useWaiterRealtime } from "../../realtime/useWaiterRealtime";
+import { useRealtimeRefresh } from "../../realtime/useRealtimeRefresh";
 import { createMutationKey } from "../../runtime/waiterDrafts";
 import { colors } from "../../theme/colors";
 import { formatDurationFrom, formatTime } from "../../theme/format";
 import type { WaiterQueueResponse, WaiterTask } from "../../types/domain";
 import { sortWaiterQueueTasks } from "./attentionSort";
+import {
+  getVisibleWaiterTasks,
+  waiterTaskBusinessStatus,
+  waiterTaskSubtitle,
+  waiterTaskTitle,
+  waiterTaskTypeLabel,
+} from "./waiterBusiness";
 
 type Props = BottomTabScreenProps<WaiterTabParamList, "WaiterQueue">;
-
-function taskTypeLabel(task: WaiterTask) {
-  if (task.type === "bill_request") return "Счёт";
-  if (task.type === "follow_up") return "Задача";
-  return "Вызов";
-}
-
-function taskHumanTitle(task: WaiterTask) {
-  if (task.type === "bill_request") return "Гости просят счёт";
-  if (task.type === "waiter_call") return "Гости вызывают официанта";
-  return "Задача по столу";
-}
-
-function taskHumanSubtitle(task: WaiterTask) {
-  if (task.type === "bill_request") return "Гости готовы оплатить заказ.";
-  if (task.type === "waiter_call") return "Гости ждут официанта.";
-  return task.subtitle || "";
-}
-
-function taskStatusLabel(task: WaiterTask) {
-  if (task.status === "in_progress") return "В работе";
-  if (task.status === "acknowledged") return "Принято";
-  if (task.status === "completed") return "Готово";
-  if (task.status === "cancelled") return "Отменено";
-  return "Новое";
-}
 
 export function WaiterQueueScreen({ navigation, route }: Props) {
   const [data, setData] = useState<WaiterQueueResponse | null>(null);
@@ -60,9 +41,10 @@ export function WaiterQueueScreen({ navigation, route }: Props) {
 
   const highlightTableId = route.params?.highlightTableId;
   const stackNavigation = navigation.getParent<NativeStackNavigationProp<WaiterStackParamList>>();
+  const visibleTasks = useMemo(() => getVisibleWaiterTasks(data?.tasks ?? []), [data?.tasks]);
   const sortedTasks = useMemo(
-    () => sortWaiterQueueTasks(data?.tasks ?? [], highlightTableId),
-    [data?.tasks, highlightTableId],
+    () => sortWaiterQueueTasks(visibleTasks, highlightTableId),
+    [visibleTasks, highlightTableId],
   );
 
   const pull = useCallback(async (withLoader = false) => {
@@ -78,11 +60,9 @@ export function WaiterQueueScreen({ navigation, route }: Props) {
     }
   }, []);
 
-  const handleRealtimeEvent = useCallback(() => {
-    void pull(false);
-  }, [pull]);
-
-  const { connected } = useWaiterRealtime(handleRealtimeEvent);
+  const { connected } = useRealtimeRefresh({
+    refresh: useCallback(() => pull(false), [pull]),
+  });
 
   useEffect(() => {
     void pull(true);
@@ -102,23 +82,17 @@ export function WaiterQueueScreen({ navigation, route }: Props) {
     setRefreshing(false);
   };
 
-  const runTaskAction = async (task: WaiterTask, action: "ack" | "start" | "complete") => {
+  const completeTask = async (task: WaiterTask) => {
     setBusyTaskId(task.id);
     try {
-      if (action === "ack") {
-        await ackWaiterTask(task.id);
-      } else if (action === "start") {
-        await startWaiterTask(task.id);
-      } else {
-        const mutationKey = completeMutationKeys[task.id] ?? createMutationKey("task-complete");
-        setCompleteMutationKeys((prev) => ({ ...prev, [task.id]: mutationKey }));
-        await completeWaiterTask(task.id, mutationKey);
-        setCompleteMutationKeys((prev) => {
-          const next = { ...prev };
-          delete next[task.id];
-          return next;
-        });
-      }
+      const mutationKey = completeMutationKeys[task.id] ?? createMutationKey("task-complete");
+      setCompleteMutationKeys((prev) => ({ ...prev, [task.id]: mutationKey }));
+      await completeWaiterTask(task.id, mutationKey);
+      setCompleteMutationKeys((prev) => {
+        const next = { ...prev };
+        delete next[task.id];
+        return next;
+      });
       setErrorText("");
       await pull(false);
     } catch {
@@ -144,15 +118,15 @@ export function WaiterQueueScreen({ navigation, route }: Props) {
 
         <View style={styles.summaryRow}>
           <View style={styles.metricCard}>
-            <Text style={styles.metricValue}>{data.summary.inProgressCount}</Text>
-            <Text style={styles.metricLabel}>В работе</Text>
+            <Text style={styles.metricValue}>{visibleTasks.length}</Text>
+            <Text style={styles.metricLabel}>Новые задачи</Text>
           </View>
           <View style={styles.metricCard}>
             <Text style={styles.metricValue}>{data.summary.activeTablesCount}</Text>
             <Text style={styles.metricLabel}>Активные столы</Text>
           </View>
           <View style={styles.metricCard}>
-            <Text style={styles.metricValue}>{data.tasks.length}</Text>
+            <Text style={styles.metricValue}>{visibleTasks.length}</Text>
             <Text style={styles.metricLabel}>Задачи</Text>
           </View>
         </View>
@@ -162,7 +136,7 @@ export function WaiterQueueScreen({ navigation, route }: Props) {
         {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
       </View>
     );
-  }, [connected, data, errorText]);
+  }, [connected, data, errorText, visibleTasks.length]);
 
   if (loading && !data) {
     return (
@@ -188,17 +162,19 @@ export function WaiterQueueScreen({ navigation, route }: Props) {
             <View style={[styles.taskCard, highlighted && styles.taskCardHighlighted]}>
               <View style={styles.taskHead}>
                 <View style={styles.taskHeadCopy}>
-                  <Text style={styles.taskTitle}>{taskHumanTitle(item)}</Text>
-                  <Text style={styles.taskMeta}>Стол {item.tableId} · {taskTypeLabel(item)} · {taskStatusLabel(item)}</Text>
+                  <Text style={styles.taskTitle}>{waiterTaskTitle(item)}</Text>
+                  <Text style={styles.taskMeta}>
+                    Стол {item.tableId} · {waiterTaskTypeLabel(item)} · {waiterTaskBusinessStatus(item)}
+                  </Text>
                 </View>
                 <View style={styles.requestBadge}>
                   <Text style={styles.requestBadgeText}>
-                    {item.type === "bill_request" ? "Счёт" : item.type === "waiter_call" ? "Вызов" : "Задача"}
+                    {waiterTaskTypeLabel(item)}
                   </Text>
                 </View>
               </View>
 
-              {taskHumanSubtitle(item) ? <Text style={styles.taskSubtitle}>{taskHumanSubtitle(item)}</Text> : null}
+              {waiterTaskSubtitle(item) ? <Text style={styles.taskSubtitle}>{waiterTaskSubtitle(item)}</Text> : null}
 
               <Text style={styles.taskTiming}>С {formatTime(item.createdAt)} · {formatDurationFrom(item.createdAt, now)}</Text>
               {item.dueAt ? <Text style={styles.taskTiming}>До {formatTime(item.dueAt)}</Text> : null}
@@ -211,35 +187,13 @@ export function WaiterQueueScreen({ navigation, route }: Props) {
                   <Text style={styles.secondaryButtonText}>Открыть</Text>
                 </Pressable>
 
-                {item.status === "open" ? (
-                  <Pressable
-                    style={[styles.secondaryButton, busy && styles.buttonDisabled]}
-                    disabled={busy}
-                    onPress={() => void runTaskAction(item, "ack")}
-                  >
-                    <Text style={styles.secondaryButtonText}>{busy ? "..." : "Принять"}</Text>
-                  </Pressable>
-                ) : null}
-
-                {item.status === "open" || item.status === "acknowledged" ? (
-                  <Pressable
-                    style={[styles.secondaryButton, busy && styles.buttonDisabled]}
-                    disabled={busy}
-                    onPress={() => void runTaskAction(item, "start")}
-                  >
-                    <Text style={styles.secondaryButtonText}>{busy ? "..." : "Начать"}</Text>
-                  </Pressable>
-                ) : null}
-
-                {item.status !== "completed" && item.status !== "cancelled" ? (
-                  <Pressable
-                    style={[styles.primaryButton, busy && styles.buttonDisabled]}
-                    disabled={busy}
-                    onPress={() => void runTaskAction(item, "complete")}
-                  >
-                    <Text style={styles.primaryButtonText}>{busy ? "..." : "Готово"}</Text>
-                  </Pressable>
-                ) : null}
+                <Pressable
+                  style={[styles.primaryButton, busy && styles.buttonDisabled]}
+                  disabled={busy}
+                  onPress={() => void completeTask(item)}
+                >
+                  <Text style={styles.primaryButtonText}>{busy ? "..." : "Выполнено"}</Text>
+                </Pressable>
               </View>
             </View>
           );

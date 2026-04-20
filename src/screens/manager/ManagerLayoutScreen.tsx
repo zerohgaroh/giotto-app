@@ -25,7 +25,7 @@ import {
   updateManagerLayout,
 } from "../../api/client";
 import type { ManagerStackParamList } from "../../navigation/types";
-import { useStaffRealtime } from "../../realtime/useStaffRealtime";
+import { useRealtimeRefresh } from "../../realtime/useRealtimeRefresh";
 import { colors } from "../../theme/colors";
 import type {
   FloorTableNode,
@@ -33,6 +33,7 @@ import type {
   FloorTableSizePreset,
   FloorZone,
   ManagerLayoutSnapshot,
+  RealtimeEvent,
 } from "../../types/domain";
 
 const TABLET_BREAKPOINT = 980;
@@ -219,24 +220,20 @@ export function ManagerLayoutScreen() {
   useEffect(() => {
     if (!layout) return;
     if (selectedZoneId && layout.zones.some((zone) => zone.id === selectedZoneId)) return;
-    setSelectedZoneId(layout.zones[0]?.id ?? null);
+    if (selectedZoneId) setSelectedZoneId(null);
   }, [layout, selectedZoneId]);
 
-  const { connected, connecting } = useStaffRealtime(
-    useCallback(
-      (event) => {
-        if (
-          event.type === "floor:layout_changed" ||
-          event.type === "table:created" ||
-          event.type === "table:archived" ||
-          event.type === "table:restored"
-        ) {
-          void pull();
-        }
-      },
-      [pull],
+  const { connected, connecting } = useRealtimeRefresh({
+    filter: useCallback(
+      (event: RealtimeEvent) =>
+        event.type === "floor:layout_changed" ||
+        event.type === "table:created" ||
+        event.type === "table:archived" ||
+        event.type === "table:restored",
+      [],
     ),
-  );
+    refresh: pull,
+  });
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -273,6 +270,8 @@ export function ManagerLayoutScreen() {
     () => (layout?.archivedTables ?? []).filter((table) => table.zoneId === selectedZoneId),
     [layout?.archivedTables, selectedZoneId],
   );
+  const allActiveTables = layout?.activeTables ?? [];
+  const allArchivedTables = layout?.archivedTables ?? [];
 
   const saveLayoutSnapshot = useCallback(
     async (nextTables: FloorTableNode[], nextZones: FloorZone[]) => {
@@ -305,13 +304,14 @@ export function ManagerLayoutScreen() {
   }, []);
 
   const openCreateTable = useCallback(() => {
-    if (!selectedZoneId) {
+    const zoneId = selectedZoneId ?? layout?.zones[0]?.id;
+    if (!zoneId) {
       setErrorText("Сначала добавь зону.");
       return;
     }
-    setTableEditor(emptyTableEditor(selectedZoneId));
+    setTableEditor(emptyTableEditor(zoneId));
     setTableModalOpen(true);
-  }, [selectedZoneId]);
+  }, [layout?.zones, selectedZoneId]);
 
   const openEditTable = useCallback(
     (table: FloorTableNode) => {
@@ -367,7 +367,7 @@ export function ManagerLayoutScreen() {
               try {
                 const nextZones = layout.zones.filter((item) => item.id !== zone.id);
                 const next = await saveLayoutSnapshot(layout.activeTables, nextZones);
-                setSelectedZoneId(next.zones[0]?.id ?? null);
+                setSelectedZoneId(null);
                 setErrorText("");
               } catch {
                 setErrorText("Не удалось удалить зону.");
@@ -489,6 +489,24 @@ export function ManagerLayoutScreen() {
             <Text style={styles.primaryButtonText}>Добавить зону</Text>
           </Pressable>
         </View>
+      ) : null}
+
+      {!loading && (layout?.zones.length ?? 0) > 0 ? (
+        <Pressable
+          style={[styles.zoneCard, selectedZoneId === null && isTablet ? styles.zoneCardActive : null]}
+          onPress={() => setSelectedZoneId(null)}
+        >
+          <View style={styles.zoneBadge}>
+            <Ionicons name="grid-outline" size={22} color={colors.navy} />
+          </View>
+          <View style={styles.zoneCopy}>
+            <Text style={styles.zoneTitle}>Все объекты</Text>
+            <Text style={styles.zoneMeta}>{allActiveTables.length} активных столов</Text>
+          </View>
+          <View style={styles.cardActions}>
+            <Ionicons name="chevron-forward-outline" size={18} color={colors.navyDeep} />
+          </View>
+        </Pressable>
       ) : null}
 
       {(layout?.zones ?? []).map((zone) => {
@@ -649,12 +667,113 @@ export function ManagerLayoutScreen() {
       </View>
     </ScrollView>
   ) : (
-    <View style={styles.emptyStateLarge}>
-      <View style={styles.emptyIcon}>
-        <Ionicons name="map-outline" size={26} color={colors.navy} />
+    <ScrollView
+      contentContainerStyle={styles.scrollContent}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.title}>Все объекты</Text>
+          <Text style={styles.subtitle}>
+            {layout?.zones.length ?? 0} зон · {allActiveTables.length} активных столов
+          </Text>
+        </View>
+        <Pressable style={styles.primaryButton} onPress={openCreateTable}>
+          <Ionicons name="add" size={18} color={colors.white} />
+          <Text style={styles.primaryButtonText}>Стол</Text>
+        </Pressable>
       </View>
-      <Text style={styles.emptyTitle}>Выбери зону</Text>
-    </View>
+
+      {!loading && !connected && !connecting ? (
+        <Banner tone="warning" text="Нет live-обновлений. Можно обновить экран вручную." />
+      ) : null}
+      {errorText ? <Banner tone="error" text={errorText} /> : null}
+
+      {allActiveTables.length === 0 ? (
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIcon}>
+            <Ionicons name="restaurant-outline" size={26} color={colors.navy} />
+          </View>
+          <Text style={styles.emptyTitle}>Активных столов пока нет</Text>
+          <Pressable style={styles.primaryButton} onPress={openCreateTable}>
+            <Ionicons name="add" size={18} color={colors.white} />
+            <Text style={styles.primaryButtonText}>Добавить стол</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {allActiveTables.map((table) => {
+        const zoneLabel = layout?.zones.find((zone) => zone.id === table.zoneId)?.label ?? "Без зоны";
+        return (
+          <View key={table.tableId} style={styles.tableCard}>
+            <View style={styles.tableCardTop}>
+              <View style={styles.tableIcon}>
+                <Ionicons
+                  name={SHAPE_OPTIONS.find((item) => item.value === table.shape)?.icon ?? "square-outline"}
+                  size={22}
+                  color={colors.navy}
+                />
+              </View>
+              <View style={styles.tableCopy}>
+                <Text style={styles.tableTitle} numberOfLines={1}>
+                  {table.label || `Стол ${table.tableId}`}
+                </Text>
+                <Text style={styles.tableMeta}>
+                  {zoneLabel} · {shapeLabel(table.shape)} · {sizeLabel(table.sizePreset)}
+                </Text>
+              </View>
+              <Pressable style={styles.iconButton} onPress={() => openManagerTableCard(table.tableId)}>
+                <Ionicons name="open-outline" size={18} color={colors.navyDeep} />
+              </Pressable>
+            </View>
+
+            <View style={styles.tableActions}>
+              <Pressable style={styles.secondaryWideButton} onPress={() => openEditTable(table)}>
+                <Ionicons name="create-outline" size={18} color={colors.navy} />
+                <Text style={styles.secondaryWideButtonText}>Изменить</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.dangerWideButton, busyTableId === table.tableId ? styles.buttonDisabled : null]}
+                onPress={() => void archiveTable(table.tableId)}
+                disabled={busyTableId === table.tableId}
+              >
+                <Ionicons name="archive-outline" size={18} color="#B42318" />
+                <Text style={styles.dangerWideButtonText}>Убрать</Text>
+              </Pressable>
+            </View>
+          </View>
+        );
+      })}
+
+      <View style={styles.archiveBlock}>
+        <View style={styles.archiveHeader}>
+          <Text style={styles.sectionTitle}>Архив всех зон</Text>
+          <Text style={styles.archiveCount}>{allArchivedTables.length}</Text>
+        </View>
+        {allArchivedTables.length === 0 ? (
+          <Text style={styles.helperText}>Архивных столов нет.</Text>
+        ) : (
+          allArchivedTables.map((table) => (
+            <View key={table.tableId} style={styles.archiveItem}>
+              <View style={styles.archiveCopy}>
+                <Text style={styles.archiveTitle}>{table.label || `Стол ${table.tableId}`}</Text>
+                <Text style={styles.archiveMeta}>
+                  {layout?.zones.find((zone) => zone.id === table.zoneId)?.label ?? "Без зоны"} · {shapeLabel(table.shape)}
+                </Text>
+              </View>
+              <Pressable
+                style={[styles.secondaryButton, busyTableId === table.tableId ? styles.buttonDisabled : null]}
+                onPress={() => void restoreTable(table.tableId)}
+                disabled={busyTableId === table.tableId}
+              >
+                <Ionicons name="refresh-outline" size={18} color={colors.navyDeep} />
+              </Pressable>
+            </View>
+          ))
+        )}
+      </View>
+    </ScrollView>
   );
 
   const zoneModal = (
