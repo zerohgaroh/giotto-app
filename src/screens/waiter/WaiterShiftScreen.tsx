@@ -22,6 +22,31 @@ import { getVisibleWaiterTasks } from "./waiterBusiness";
 
 type Props = BottomTabScreenProps<WaiterTabParamList, "WaiterShift">;
 
+const EMPTY_REVIEW_PAGE: ReviewHistoryPage = {
+  analytics: {
+    avgRating: 0,
+    reviewsCount: 0,
+    commentsCount: 0,
+    distribution: {
+      rating1: 0,
+      rating2: 0,
+      rating3: 0,
+      rating4: 0,
+      rating5: 0,
+    },
+  },
+  items: [],
+};
+
+function normalizeShiftSummary(summary: WaiterShiftSummary): WaiterShiftSummary {
+  return {
+    ...summary,
+    avgRatingAllTime: Number(summary.avgRatingAllTime ?? 0),
+    reviewsCountAllTime: Number(summary.reviewsCountAllTime ?? 0),
+    commentsCountAllTime: Number(summary.commentsCountAllTime ?? 0),
+  };
+}
+
 function ReviewStars({ rating }: { rating: number }) {
   return (
     <View style={styles.reviewStarsRow}>
@@ -53,14 +78,16 @@ export function WaiterShiftScreen(_props: Props) {
   const pull = useCallback(async (withLoader = false) => {
     if (withLoader) setLoading(true);
     try {
-      const [nextSummary, nextQueue, nextReviews] = await Promise.all([
-        fetchWaiterShiftSummary(),
-        fetchWaiterQueue(),
-        fetchWaiterReviews({ limit: 20 }),
-      ]);
+      const [nextSummaryRaw, nextQueue] = await Promise.all([fetchWaiterShiftSummary(), fetchWaiterQueue()]);
+      const nextSummary = normalizeShiftSummary(nextSummaryRaw);
       setSummary(nextSummary);
       setQueue(nextQueue);
-      setReviews(nextReviews);
+      try {
+        const nextReviews = await fetchWaiterReviews({ limit: 20 });
+        setReviews(nextReviews);
+      } catch {
+        setReviews((current) => current ?? EMPTY_REVIEW_PAGE);
+      }
       setErrorText("");
     } catch {
       setErrorText("Не удалось загрузить аналитику смены.");

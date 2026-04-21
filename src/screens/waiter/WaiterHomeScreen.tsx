@@ -130,7 +130,11 @@ export function WaiterHomeScreen({ navigation }: Props) {
                   <Text style={styles.cardTitle}>Стол {item.tableId}</Text>
                   <StatusBadge status={item.status} />
                 </View>
-                <Text style={styles.cardTime}>За столом {formatDurationFrom(item.guestStartedAt, now)}</Text>
+                <Text style={styles.cardTime}>
+                  {item.status === "free" || !item.hasActiveSession
+                    ? "Стол свободен"
+                    : `За столом ${formatDurationFrom(item.guestStartedAt, now)}`}
+                </Text>
                 <Text style={styles.metaText}>Задачи: {item.openTasksCount} · Срочно: {item.urgentTasksCount}</Text>
                 {requestLabel || taskLabel ? (
                   <Text style={styles.requestText} numberOfLines={2}>
