@@ -24,6 +24,7 @@ export type ManagerTabParamList = {
 export type ManagerStackParamList = {
   ManagerTabs: NavigatorScreenParams<ManagerTabParamList> | undefined;
   ManagerTable: { tableId: number };
+  ManagerReviews: { waiterId?: string; waiterName?: string } | undefined;
 };
 
 export type RootStackParamList = {

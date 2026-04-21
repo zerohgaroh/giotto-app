@@ -1,4 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import type { NavigationProp } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -22,6 +24,7 @@ import {
   resetManagerWaiterPassword,
   updateManagerWaiter,
 } from "../../api/client";
+import type { ManagerStackParamList } from "../../navigation/types";
 import { useRealtimeRefresh } from "../../realtime/useRealtimeRefresh";
 import { colors } from "../../theme/colors";
 import type { ManagerHallResponse, ManagerWaiterSummary } from "../../types/domain";
@@ -46,6 +49,7 @@ function emptyEditor(): EditorState {
 }
 
 export function ManagerTeamScreen() {
+  const navigation = useNavigation<NavigationProp<ManagerStackParamList>>();
   const [waiters, setWaiters] = useState<ManagerWaiterSummary[]>([]);
   const [hall, setHall] = useState<ManagerHallResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -177,9 +181,17 @@ export function ManagerTeamScreen() {
             <Text style={styles.title}>Команда</Text>
             <Text style={styles.subtitle}>Официанты</Text>
           </View>
-          <Pressable style={styles.primaryButton} onPress={openCreate}>
-            <Text style={styles.primaryButtonText}>Добавить</Text>
-          </Pressable>
+          <View style={styles.headerActions}>
+            <Pressable
+              style={styles.secondaryButton}
+              onPress={() => navigation.navigate("ManagerReviews")}
+            >
+              <Text style={styles.secondaryButtonText}>Отзывы</Text>
+            </Pressable>
+            <Pressable style={styles.primaryButton} onPress={openCreate}>
+              <Text style={styles.primaryButtonText}>Добавить</Text>
+            </Pressable>
+          </View>
         </View>
 
         {loading ? <Text style={styles.meta}>Загрузка...</Text> : null}
@@ -203,8 +215,22 @@ export function ManagerTeamScreen() {
               Столы: {waiter.tableIds.length > 0 ? waiter.tableIds.join(", ") : "Нет"}
             </Text>
             <Text style={styles.cardMeta}>Назначено: {waiter.assignedTablesCount}</Text>
+            <Text style={styles.cardMeta}>
+              Рейтинг: {waiter.avgRatingAllTime.toFixed(1)} ({waiter.reviewsCountAllTime} отзывов)
+            </Text>
 
             <View style={styles.actionRow}>
+              <Pressable
+                style={styles.secondaryButton}
+                onPress={() =>
+                  navigation.navigate("ManagerReviews", {
+                    waiterId: waiter.id,
+                    waiterName: waiter.name,
+                  })
+                }
+              >
+                <Text style={styles.secondaryButtonText}>Отзывы</Text>
+              </Pressable>
               <Pressable style={styles.secondaryButton} onPress={() => openEdit(waiter)}>
                 <Text style={styles.secondaryButtonText}>Изменить</Text>
               </Pressable>
@@ -407,6 +433,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     gap: 12,
+    alignItems: "center",
+  },
+  headerActions: {
+    flexDirection: "row",
+    gap: 8,
     alignItems: "center",
   },
   title: {

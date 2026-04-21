@@ -17,6 +17,7 @@ import type {
   ManagerWaiterDetail,
   ManagerWaiterSummary,
   PushDeviceRegistration,
+  ReviewHistoryPage,
   RestaurantData,
   StaffBootstrapResponse,
   StaffLoginResponse,
@@ -420,6 +421,12 @@ export async function fetchWaiterShiftSummary() {
   return request<WaiterShiftSummary>("/api/staff/waiter/shift-summary");
 }
 
+export async function fetchWaiterReviews(params?: { cursor?: string; limit?: number }) {
+  return request<ReviewHistoryPage>("/api/staff/waiter/reviews", {
+    query: params ?? {},
+  });
+}
+
 export async function fetchManagerHall() {
   return request<ManagerHallResponse>("/api/staff/manager/hall");
 }
@@ -450,6 +457,16 @@ export async function fetchManagerHistory(params: {
 }) {
   return request<ManagerHistoryPage>("/api/staff/manager/history", {
     query: params,
+  });
+}
+
+export async function fetchManagerReviews(params?: {
+  waiterId?: string;
+  cursor?: string;
+  limit?: number;
+}) {
+  return request<ReviewHistoryPage>("/api/staff/manager/reviews", {
+    query: params ?? {},
   });
 }
 

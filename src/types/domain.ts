@@ -65,6 +65,37 @@ export type ReviewPrompt = {
   expiresAt: number;
 };
 
+export type ReviewDistribution = {
+  rating1: number;
+  rating2: number;
+  rating3: number;
+  rating4: number;
+  rating5: number;
+};
+
+export type ReviewAnalytics = {
+  avgRating: number;
+  reviewsCount: number;
+  commentsCount: number;
+  distribution: ReviewDistribution;
+};
+
+export type ReviewHistoryItem = {
+  id: string;
+  tableId: number;
+  waiterId?: string;
+  waiterName?: string;
+  rating: number;
+  comment?: string;
+  createdAt: number;
+};
+
+export type ReviewHistoryPage = {
+  analytics: ReviewAnalytics;
+  items: ReviewHistoryItem[];
+  nextCursor?: string;
+};
+
 export type GuestTableLink = {
   tableId: number;
   accessKey: string;
@@ -231,6 +262,9 @@ export type WaiterShiftSummary = {
   activeTablesCount: number;
   waiterOrdersCount: number;
   serviceCompletedCount: number;
+  avgRatingAllTime: number;
+  reviewsCountAllTime: number;
+  commentsCountAllTime: number;
 };
 
 export type WaiterTableDetailResponse = {
@@ -290,6 +324,8 @@ export type ManagerHistoryPage = {
 
 export type ManagerWaiterSummary = WaiterProfile & {
   assignedTablesCount: number;
+  avgRatingAllTime: number;
+  reviewsCountAllTime: number;
 };
 
 export type ManagerWaiterDetail = ManagerWaiterSummary & {

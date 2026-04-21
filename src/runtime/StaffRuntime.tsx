@@ -27,11 +27,17 @@ const DEVICE_ID_KEY = "giotto.mobile.deviceId.v1";
 const ALERT_DEDUPE_MS = 6_000;
 const ALERT_VISIBLE_MS = 4_500;
 const PUSH_RESYNC_INTERVAL_MS = 60_000;
+const PUSH_SYNC_MAX_ATTEMPTS = 3;
+const PUSH_SYNC_RETRY_DELAYS_MS = [900, 2_100];
 const VIBRATION_PATTERN = Platform.OS === "android" ? [0, 180, 120, 220] : 350;
 const NOTIFICATION_CHANNEL_ID = "giotto-service-alerts";
 const FOREGROUND_SIGNAL_FLAG = "__giottoForegroundSignal";
 
 const isExpoGo = Constants.appOwnership === "expo";
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function setupNotifications(appStateRef: { current: AppStateStatus }) {
   if (isExpoGo) return;
@@ -70,7 +76,14 @@ function extractTableId(input: unknown) {
 }
 
 async function registerForPush(): Promise<PushDeviceRegistration | null> {
-  if (!Device.isDevice || isExpoGo) return null;
+  if (!Device.isDevice) {
+    console.info("[push] Skipping registration: physical device is required");
+    return null;
+  }
+  if (isExpoGo) {
+    console.info("[push] Skipping registration in Expo Go");
+    return null;
+  }
   if (!Notifications) {
     Notifications = await import("expo-notifications");
   }
@@ -89,20 +102,35 @@ async function registerForPush(): Promise<PushDeviceRegistration | null> {
         : (request as { status?: string }).status === "granted";
   }
 
-  if (!granted) return null;
+  if (!granted) {
+    console.info("[push] Notification permission is not granted");
+    return null;
+  }
 
   const projectId =
     Constants.easConfig?.projectId ??
-    (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId;
+    (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId ??
+    process.env.EXPO_PUBLIC_EAS_PROJECT_ID?.trim();
   if (!projectId) {
-    throw new Error(
-      "Missing Expo projectId for push registration. Set EXPO_PUBLIC_EAS_PROJECT_ID and rebuild the app.",
-    );
+    console.warn("[push] Missing Expo projectId (EXPO_PUBLIC_EAS_PROJECT_ID)");
+    return null;
   }
-  const tokenResponse = await Notifications.getExpoPushTokenAsync({ projectId });
+
+  let tokenResponse: { data: string };
+  try {
+    tokenResponse = await Notifications.getExpoPushTokenAsync({ projectId });
+  } catch (error) {
+    console.warn("[push] Failed to obtain Expo push token (network or Expo service)", error);
+    return null;
+  }
+
+  if (!tokenResponse.data?.trim()) {
+    console.warn("[push] Expo push token response is empty");
+    return null;
+  }
 
   return {
-    token: tokenResponse.data,
+    token: tokenResponse.data.trim(),
     platform: "expo",
     appVersion: Constants.expoConfig?.version ?? "1.0.0",
     deviceId: await getOrCreateDeviceId(),
@@ -134,6 +162,7 @@ export function StaffRuntime() {
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const lastSeenAtRef = useRef(new Map<string, number>());
   const lastPushSyncAtRef = useRef(0);
+  const pushSyncInFlightRef = useRef(false);
   const dismissingRef = useRef(false);
   const animation = useRef(new Animated.Value(0)).current;
   const currentAlert = alertQueue[0] ?? null;
@@ -221,23 +250,50 @@ export function StaffRuntime() {
 
   useWaiterRealtime(handleRuntimeRealtimeEvent);
 
-  const syncPushToken = useCallback(async () => {
+  const syncPushTokenWithRetry = useCallback(async (payload: PushDeviceRegistration) => {
+    for (let attempt = 0; attempt < PUSH_SYNC_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        await registerPushToken(payload);
+        return true;
+      } catch (error) {
+        const reason =
+          typeof (error as { code?: unknown })?.code === "string"
+            ? String((error as { code: string }).code)
+            : "unknown";
+        const currentAttempt = attempt + 1;
+        console.warn(`[push] Failed to sync token (attempt ${currentAttempt}/${PUSH_SYNC_MAX_ATTEMPTS}, reason=${reason})`, error);
+        if (currentAttempt >= PUSH_SYNC_MAX_ATTEMPTS) {
+          return false;
+        }
+        await sleep(PUSH_SYNC_RETRY_DELAYS_MS[Math.min(attempt, PUSH_SYNC_RETRY_DELAYS_MS.length - 1)]);
+      }
+    }
+    return false;
+  }, []);
+
+  const syncPushToken = useCallback(async (options?: { force?: boolean; payload?: PushDeviceRegistration }) => {
     if (!session || session.role !== "waiter") return;
+    if (pushSyncInFlightRef.current) return;
 
     const now = Date.now();
-    if (now - lastPushSyncAtRef.current < PUSH_RESYNC_INTERVAL_MS) {
+    if (!options?.force && now - lastPushSyncAtRef.current < PUSH_RESYNC_INTERVAL_MS) {
       return;
     }
-    lastPushSyncAtRef.current = now;
+    pushSyncInFlightRef.current = true;
 
     try {
-      const payload = await registerForPush();
+      const payload = options?.payload ?? (await registerForPush());
       if (!payload) return;
-      await registerPushToken(payload);
+      const synced = await syncPushTokenWithRetry(payload);
+      if (synced) {
+        lastPushSyncAtRef.current = Date.now();
+      }
     } catch (error) {
       console.warn("[push] Failed to register device for remote notifications", error);
+    } finally {
+      pushSyncInFlightRef.current = false;
     }
-  }, [session]);
+  }, [session, syncPushTokenWithRetry]);
 
   const popupTransform = useMemo(
     () => [
@@ -288,6 +344,7 @@ export function StaffRuntime() {
     let cancelled = false;
     let responseSubscription: { remove(): void } | null = null;
     let receivedSubscription: { remove(): void } | null = null;
+    let pushTokenSubscription: { remove(): void } | null = null;
 
     void (async () => {
       if (!Notifications) Notifications = await import("expo-notifications");
@@ -310,6 +367,25 @@ export function StaffRuntime() {
         );
       });
 
+      pushTokenSubscription = Notifications.addPushTokenListener((token) => {
+        const refreshedToken = typeof token?.data === "string" ? token.data.trim() : "";
+        if (!refreshedToken) return;
+
+        console.info("[push] Expo push token refreshed");
+        void (async () => {
+          const deviceId = await getOrCreateDeviceId();
+          await syncPushToken({
+            force: true,
+            payload: {
+              token: refreshedToken,
+              platform: "expo",
+              appVersion: Constants.expoConfig?.version ?? "1.0.0",
+              deviceId,
+            },
+          });
+        })();
+      });
+
       void Notifications.getLastNotificationResponseAsync().then((response) => {
         if (!response) return;
         maybeOpenTableFromData(response.notification.request.content.data as Record<string, unknown>);
@@ -320,12 +396,27 @@ export function StaffRuntime() {
       cancelled = true;
       responseSubscription?.remove();
       receivedSubscription?.remove();
+      pushTokenSubscription?.remove();
     };
-  }, [enqueueIncomingAlert]);
+  }, [enqueueIncomingAlert, syncPushToken]);
 
   useEffect(() => {
     void syncPushToken();
   }, [syncPushToken]);
+
+  useEffect(() => {
+    if (!session || session.role !== "waiter") return;
+
+    const timer = setInterval(() => {
+      if (appStateRef.current === "active") {
+        void syncPushToken();
+      }
+    }, PUSH_RESYNC_INTERVAL_MS);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [session, syncPushToken]);
 
   useEffect(() => {
     if (!currentAlert) {

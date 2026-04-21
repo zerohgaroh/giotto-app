@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
+  ApiError,
   completeWaiterTask,
   fetchWaiterShortcuts,
   fetchWaiterTable,
@@ -221,6 +222,10 @@ export function WaiterTableScreen({ navigation, route }: Props) {
     } catch (error) {
       if (shouldExitWaiterTableFlow(error)) {
         navigation.goBack();
+        return;
+      }
+      if (error instanceof ApiError && error.status === 409) {
+        setErrorText("В текущей сессии нет заказа для повтора.");
         return;
       }
       setErrorText("Не удалось повторить заказ.");

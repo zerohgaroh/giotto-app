@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import { useFocusEffect } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -11,30 +12,55 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { fetchWaiterQueue, fetchWaiterShiftSummary } from "../../api/client";
+import { fetchWaiterQueue, fetchWaiterReviews, fetchWaiterShiftSummary } from "../../api/client";
 import type { WaiterTabParamList } from "../../navigation/types";
 import { useRealtimeRefresh } from "../../realtime/useRealtimeRefresh";
 import { colors } from "../../theme/colors";
-import { formatDurationFrom } from "../../theme/format";
-import type { WaiterQueueResponse, WaiterShiftSummary } from "../../types/domain";
+import { formatDurationFrom, formatTime } from "../../theme/format";
+import type { ReviewHistoryPage, WaiterQueueResponse, WaiterShiftSummary } from "../../types/domain";
 import { getVisibleWaiterTasks } from "./waiterBusiness";
 
 type Props = BottomTabScreenProps<WaiterTabParamList, "WaiterShift">;
 
+function ReviewStars({ rating }: { rating: number }) {
+  return (
+    <View style={styles.reviewStarsRow}>
+      {Array.from({ length: 5 }, (_, index) => {
+        const filled = index + 1 <= rating;
+        return (
+          <Ionicons
+            key={`${rating}-${index}`}
+            name={filled ? "star" : "star-outline"}
+            size={14}
+            color={filled ? "#C4A258" : "#B9C0CC"}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
 export function WaiterShiftScreen(_props: Props) {
   const [summary, setSummary] = useState<WaiterShiftSummary | null>(null);
   const [queue, setQueue] = useState<WaiterQueueResponse | null>(null);
+  const [reviews, setReviews] = useState<ReviewHistoryPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMoreReviews, setLoadingMoreReviews] = useState(false);
   const [errorText, setErrorText] = useState("");
   const [now, setNow] = useState(Date.now());
 
   const pull = useCallback(async (withLoader = false) => {
     if (withLoader) setLoading(true);
     try {
-      const [nextSummary, nextQueue] = await Promise.all([fetchWaiterShiftSummary(), fetchWaiterQueue()]);
+      const [nextSummary, nextQueue, nextReviews] = await Promise.all([
+        fetchWaiterShiftSummary(),
+        fetchWaiterQueue(),
+        fetchWaiterReviews({ limit: 20 }),
+      ]);
       setSummary(nextSummary);
       setQueue(nextQueue);
+      setReviews(nextReviews);
       setErrorText("");
     } catch {
       setErrorText("Не удалось загрузить аналитику смены.");
@@ -63,6 +89,31 @@ export function WaiterShiftScreen(_props: Props) {
     setRefreshing(true);
     await pull(false);
     setRefreshing(false);
+  };
+
+  const onLoadMoreReviews = async () => {
+    if (!reviews?.nextCursor || loadingMoreReviews) return;
+    setLoadingMoreReviews(true);
+    try {
+      const next = await fetchWaiterReviews({
+        cursor: reviews.nextCursor,
+        limit: 20,
+      });
+      setReviews((current) =>
+        current
+          ? {
+              analytics: next.analytics,
+              items: [...current.items, ...next.items],
+              nextCursor: next.nextCursor,
+            }
+          : next,
+      );
+      setErrorText("");
+    } catch {
+      setErrorText("Не удалось загрузить ещё отзывы.");
+    } finally {
+      setLoadingMoreReviews(false);
+    }
   };
 
   const chartData = useMemo(() => {
@@ -124,6 +175,52 @@ export function WaiterShiftScreen(_props: Props) {
               <Text style={styles.metricValue}>{summary.serviceCompletedCount}</Text>
               <Text style={styles.metricLabel}>Закрыто столов</Text>
             </View>
+          </View>
+        ) : null}
+
+        {summary ? (
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Отзывы гостей</Text>
+            <View style={styles.reviewMetricsRow}>
+              <View style={styles.reviewMetricCell}>
+                <Text style={styles.reviewMetricValue}>{summary.avgRatingAllTime.toFixed(1)}</Text>
+                <Text style={styles.reviewMetricLabel}>Средний балл</Text>
+              </View>
+              <View style={styles.reviewMetricCell}>
+                <Text style={styles.reviewMetricValue}>{summary.reviewsCountAllTime}</Text>
+                <Text style={styles.reviewMetricLabel}>Всего отзывов</Text>
+              </View>
+              <View style={styles.reviewMetricCell}>
+                <Text style={styles.reviewMetricValue}>{summary.commentsCountAllTime}</Text>
+                <Text style={styles.reviewMetricLabel}>С комментарием</Text>
+              </View>
+            </View>
+
+            {reviews?.items.map((item) => (
+              <View key={item.id} style={styles.reviewCard}>
+                <View style={styles.reviewRowBetween}>
+                  <ReviewStars rating={item.rating} />
+                  <Text style={styles.reviewDate}>{formatTime(item.createdAt)}</Text>
+                </View>
+                {item.comment ? (
+                  <Text style={styles.reviewComment}>{item.comment}</Text>
+                ) : (
+                  <Text style={styles.reviewCommentEmpty}>Комментарий не оставлен</Text>
+                )}
+              </View>
+            ))}
+
+            {reviews?.items.length === 0 ? <Text style={styles.meta}>Пока нет отзывов.</Text> : null}
+
+            {reviews?.nextCursor ? (
+              <Pressable
+                style={styles.moreReviewsButton}
+                onPress={() => void onLoadMoreReviews()}
+                disabled={loadingMoreReviews}
+              >
+                <Text style={styles.moreReviewsButtonText}>{loadingMoreReviews ? "..." : "Загрузить ещё"}</Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
 
@@ -214,6 +311,9 @@ const styles = StyleSheet.create({
   errorText: {
     color: "#B42318",
   },
+  meta: {
+    color: colors.muted,
+  },
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -302,5 +402,76 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 11,
     textAlign: "center",
+  },
+  reviewMetricsRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  reviewMetricCell: {
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: "#FFFDF8",
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    gap: 2,
+  },
+  reviewMetricValue: {
+    color: colors.navyDeep,
+    fontSize: 20,
+    fontWeight: "800",
+  },
+  reviewMetricLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    textAlign: "center",
+  },
+  reviewCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: "#FFFDF8",
+    padding: 10,
+    gap: 4,
+  },
+  reviewRowBetween: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 8,
+  },
+  reviewStarsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  reviewDate: {
+    color: colors.muted,
+    fontSize: 12,
+  },
+  reviewComment: {
+    color: colors.text,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  reviewCommentEmpty: {
+    color: "#9A9285",
+    fontSize: 12,
+    fontStyle: "italic",
+  },
+  moreReviewsButton: {
+    minHeight: 40,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.navy,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  moreReviewsButtonText: {
+    color: colors.navy,
+    fontWeight: "700",
   },
 });
