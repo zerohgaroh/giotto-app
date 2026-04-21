@@ -559,6 +559,9 @@ export async function fetchWaiterReviews(params?: { cursor?: string; limit?: num
     });
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) {
+      console.warn("[reviews] waiter endpoint is not available on backend, returning empty page fallback", {
+        params: params ?? null,
+      });
       return EMPTY_REVIEW_HISTORY_PAGE;
     }
     throw error;
@@ -609,6 +612,9 @@ export async function fetchManagerReviews(params?: {
     });
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) {
+      console.warn("[reviews] manager endpoint is not available on backend, returning empty page fallback", {
+        params: params ?? null,
+      });
       return EMPTY_REVIEW_HISTORY_PAGE;
     }
     throw error;
@@ -658,6 +664,44 @@ export async function updateManagerWaiter(
     method: "PATCH",
     body: JSON.stringify(payload),
   });
+}
+
+export async function deleteManagerWaiter(waiterId: string) {
+  try {
+    return await request<{ ok: boolean }>(`/api/staff/manager/waiters/${waiterId}`, {
+      method: "DELETE",
+    });
+  } catch (error) {
+    if (!(error instanceof ApiError) || (error.status !== 404 && error.status !== 405)) {
+      throw error;
+    }
+
+    try {
+      return await request<{ ok: boolean }>(`/api/staff/manager/waiters/${waiterId}/delete`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    } catch (fallbackError) {
+      if (
+        !(fallbackError instanceof ApiError) ||
+        (fallbackError.status !== 404 && fallbackError.status !== 405 && fallbackError.status !== 501)
+      ) {
+        throw fallbackError;
+      }
+
+      // Compatibility fallback for older/proxied backends:
+      // emulate deletion by clearing assignments + deactivating waiter.
+      await request<ManagerWaiterDetail>(`/api/staff/manager/waiters/${waiterId}/assignments`, {
+        method: "PUT",
+        body: JSON.stringify({ tableIds: [] }),
+      });
+      await request<ManagerWaiterDetail>(`/api/staff/manager/waiters/${waiterId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ active: false }),
+      });
+      return { ok: true };
+    }
+  }
 }
 
 export async function resetManagerWaiterPassword(waiterId: string, password: string) {

@@ -351,8 +351,8 @@ export function ManagerLayoutScreen() {
   const confirmDeleteZone = useCallback(
     (zone: FloorZone) => {
       if (!layout) return;
-      const hasTables = [...layout.activeTables, ...layout.archivedTables].some((table) => table.zoneId === zone.id);
-      if (hasTables) {
+      const hasActiveTables = layout.activeTables.some((table) => table.zoneId === zone.id);
+      if (hasActiveTables) {
         setErrorText("Сначала убери или перенеси столы из этой зоны.");
         return;
       }

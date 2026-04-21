@@ -3,6 +3,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NavigationProp } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -17,7 +18,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
+  ApiError,
   createManagerWaiter,
+  deleteManagerWaiter,
   fetchManagerHall,
   fetchManagerWaiters,
   replaceManagerWaiterAssignments,
@@ -80,6 +83,7 @@ export function ManagerTeamScreen() {
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [resetPasswordVisible, setResetPasswordVisible] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deletingWaiterId, setDeletingWaiterId] = useState<string | null>(null);
 
   const pull = useCallback(async () => {
     const [nextWaiters, nextHall] = await Promise.all([fetchManagerWaiters(), fetchManagerHall()]);
@@ -188,6 +192,48 @@ export function ManagerTeamScreen() {
     }
   };
 
+  const confirmDeleteWaiter = (waiter: ManagerWaiterSummary) => {
+    Alert.alert("Удалить официанта?", `${waiter.name} (${waiter.login})`, [
+      { text: "Отмена", style: "cancel" },
+      {
+        text: "Удалить",
+        style: "destructive",
+        onPress: () => {
+          void (async () => {
+            setDeletingWaiterId(waiter.id);
+            try {
+              await deleteManagerWaiter(waiter.id);
+              await pull();
+              setErrorText("");
+            } catch (error) {
+              console.warn("[waiter-delete] client_failed", {
+                waiterId: waiter.id,
+                status: error instanceof ApiError ? error.status : undefined,
+                message: error instanceof Error ? error.message : String(error),
+              });
+              if (error instanceof ApiError && (error.status === 404 || error.status === 405)) {
+                setErrorText("Удаление официанта не поддерживается на сервере. Обновите backend.");
+              } else if (error instanceof ApiError && error.status === 409) {
+                setErrorText("Сначала убери столы у официанта и закрой активные сессии.");
+              } else if (
+                error instanceof ApiError &&
+                typeof error.message === "string" &&
+                error.message.length > 0 &&
+                !error.message.startsWith("HTTP ")
+              ) {
+                setErrorText(error.message);
+              } else {
+                setErrorText("Не удалось удалить официанта.");
+              }
+            } finally {
+              setDeletingWaiterId(null);
+            }
+          })();
+        },
+      },
+    ]);
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <ScrollView
@@ -252,6 +298,15 @@ export function ManagerTeamScreen() {
               </Pressable>
               <Pressable style={styles.secondaryButton} onPress={() => openPasswordReset(waiter)}>
                 <Text style={styles.secondaryButtonText}>Сменить пароль</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.secondaryButton, styles.dangerButton]}
+                onPress={() => confirmDeleteWaiter(waiter)}
+                disabled={deletingWaiterId === waiter.id}
+              >
+                <Text style={[styles.secondaryButtonText, styles.dangerButtonText]}>
+                  {deletingWaiterId === waiter.id ? "..." : "Удалить"}
+                </Text>
               </Pressable>
             </View>
           </View>
@@ -552,6 +607,13 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     color: colors.navy,
     fontWeight: "600",
+  },
+  dangerButton: {
+    borderColor: "#E7C7C7",
+    backgroundColor: "#FFF5F5",
+  },
+  dangerButtonText: {
+    color: "#B42318",
   },
   modalArea: {
     flex: 1,
