@@ -44,3 +44,26 @@ test("realtime refresh batcher coalesces multiple schedules", () => {
   callbacks[0]?.();
   assert.equal(calls, 1);
 });
+
+test("realtime refresh batcher catches async refresh errors", async () => {
+  const callbacks: Array<() => void> = [];
+  const errors: unknown[] = [];
+  const batcher = createRealtimeRefreshBatcher({
+    refresh: async () => {
+      throw new Error("Not found");
+    },
+    onError: (error) => {
+      errors.push(error);
+    },
+    setTimer: (callback: () => void) => {
+      callbacks.push(callback);
+      return callbacks.length as never;
+    },
+    clearTimer: () => undefined,
+  });
+
+  batcher.schedule();
+  callbacks[0]?.();
+  await Promise.resolve();
+  assert.equal(errors.length, 1);
+});

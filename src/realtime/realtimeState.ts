@@ -64,6 +64,7 @@ export function createRealtimeRefreshBatcher(input: {
   delayMs?: number;
   setTimer?: (callback: () => void, delayMs: number) => TimerHandle;
   clearTimer?: (timer: TimerHandle) => void;
+  onError?: (error: unknown) => void;
 }) {
   const setTimer = input.setTimer ?? setTimeout;
   const clearTimer = input.clearTimer ?? clearTimeout;
@@ -75,7 +76,21 @@ export function createRealtimeRefreshBatcher(input: {
       if (timer) return;
       timer = setTimer(() => {
         timer = null;
-        void input.refresh();
+        try {
+          void Promise.resolve(input.refresh()).catch((error) => {
+            if (input.onError) {
+              input.onError(error);
+              return;
+            }
+            console.warn("[realtime] Refresh callback failed", error);
+          });
+        } catch (error) {
+          if (input.onError) {
+            input.onError(error);
+            return;
+          }
+          console.warn("[realtime] Refresh callback failed", error);
+        }
       }, delayMs);
     },
     cancel() {

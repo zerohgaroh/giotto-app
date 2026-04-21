@@ -60,6 +60,21 @@ export function LoginScreen() {
         setErrorText("Сервер недоступен.");
       } else if (error instanceof ApiError && error.status === 401) {
         setErrorText("Неверный логин или пароль.");
+      } else if (
+        error instanceof ApiError &&
+        typeof error.message === "string" &&
+        error.message.toLowerCase().includes("imunify360")
+      ) {
+        setErrorText("Сервер временно блокирует вход с этой сети. Смените сеть или отключите VPN.");
+      } else if (error instanceof ApiError && error.status >= 500) {
+        setErrorText("Ошибка сервера. Попробуйте позже.");
+      } else if (
+        error instanceof ApiError &&
+        typeof error.message === "string" &&
+        error.message.length > 0 &&
+        !error.message.startsWith("HTTP ")
+      ) {
+        setErrorText(error.message);
       } else {
         setErrorText("Не удалось войти.");
       }

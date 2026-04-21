@@ -15,6 +15,9 @@ export function useRealtimeRefresh(input: {
     createRealtimeRefreshBatcher({
       refresh: () => refreshRef.current(),
       delayMs: input.debounceMs,
+      onError: (error) => {
+        console.warn("[realtime] Failed to refresh screen state from realtime event", error);
+      },
     }),
   );
 
@@ -28,6 +31,9 @@ export function useRealtimeRefresh(input: {
     batcherRef.current = createRealtimeRefreshBatcher({
       refresh: () => refreshRef.current(),
       delayMs: input.debounceMs,
+      onError: (error) => {
+        console.warn("[realtime] Failed to refresh screen state from realtime event", error);
+      },
     });
     return () => batcherRef.current.cancel();
   }, [input.debounceMs]);

@@ -48,6 +48,24 @@ function emptyEditor(): EditorState {
   };
 }
 
+function asFiniteNumber(value: unknown, fallback = 0) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function normalizeWaiter(waiter: ManagerWaiterSummary): ManagerWaiterSummary {
+  const raw = waiter as Partial<ManagerWaiterSummary> & { tableIds?: unknown };
+  return {
+    ...waiter,
+    tableIds: Array.isArray(raw.tableIds)
+      ? raw.tableIds.map((tableId) => Number(tableId)).filter((tableId) => Number.isFinite(tableId))
+      : [],
+    assignedTablesCount: asFiniteNumber(raw.assignedTablesCount),
+    avgRatingAllTime: asFiniteNumber(raw.avgRatingAllTime),
+    reviewsCountAllTime: asFiniteNumber(raw.reviewsCountAllTime),
+  };
+}
+
 export function ManagerTeamScreen() {
   const navigation = useNavigation<NavigationProp<ManagerStackParamList>>();
   const [waiters, setWaiters] = useState<ManagerWaiterSummary[]>([]);
@@ -65,7 +83,7 @@ export function ManagerTeamScreen() {
 
   const pull = useCallback(async () => {
     const [nextWaiters, nextHall] = await Promise.all([fetchManagerWaiters(), fetchManagerHall()]);
-    setWaiters(nextWaiters);
+    setWaiters(nextWaiters.map((waiter) => normalizeWaiter(waiter)));
     setHall(nextHall);
   }, []);
 
@@ -215,9 +233,7 @@ export function ManagerTeamScreen() {
               Столы: {waiter.tableIds.length > 0 ? waiter.tableIds.join(", ") : "Нет"}
             </Text>
             <Text style={styles.cardMeta}>Назначено: {waiter.assignedTablesCount}</Text>
-            <Text style={styles.cardMeta}>
-              Рейтинг: {waiter.avgRatingAllTime.toFixed(1)} ({waiter.reviewsCountAllTime} отзывов)
-            </Text>
+            <Text style={styles.cardMeta}>Рейтинг: {waiter.avgRatingAllTime.toFixed(1)} ({waiter.reviewsCountAllTime} отзывов)</Text>
 
             <View style={styles.actionRow}>
               <Pressable

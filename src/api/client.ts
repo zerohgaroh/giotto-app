@@ -1,5 +1,6 @@
 import Constants from "expo-constants";
 import type { ImagePickerAsset } from "expo-image-picker";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import { getAccessToken, setAccessToken, subscribeAccessToken } from "./accessTokenStore";
@@ -33,7 +34,23 @@ export { shouldRefreshAccessToken } from "./tokenFreshness";
 
 const DEFAULT_PORT = "3000";
 const REFRESH_TOKEN_KEY = "giotto.mobile.refreshToken.v2";
+const REFRESH_TOKEN_FALLBACK_KEY = "giotto.mobile.refreshToken.fallback.v1";
 const REQUEST_TIMEOUT_MS = 25000;
+const EMPTY_REVIEW_HISTORY_PAGE: ReviewHistoryPage = {
+  analytics: {
+    avgRating: 0,
+    reviewsCount: 0,
+    commentsCount: 0,
+    distribution: {
+      rating1: 0,
+      rating2: 0,
+      rating3: 0,
+      rating4: 0,
+      rating5: 0,
+    },
+  },
+  items: [],
+};
 
 let refreshInFlight: Promise<StaffLoginResponse | null> | null = null;
 let accessTokenExpiresAtMemory = 0;
@@ -149,26 +166,142 @@ function parseJsonSafe(text: string) {
   }
 }
 
-async function readRefreshToken() {
-  return SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+function asRecord(value: unknown) {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 }
 
-async function writeRefreshToken(refreshToken: string) {
-  await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, refreshToken);
+function normalizeToken(value: unknown) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeRole(value: unknown) {
+  return value === "waiter" || value === "manager" ? value : null;
+}
+
+function normalizeStaffLoginResponse(input: unknown): StaffLoginResponse {
+  const payload = asRecord(input);
+
+  const accessToken = normalizeToken(
+    payload.accessToken ?? payload.access_token ?? payload.token ?? payload.jwt,
+  );
+  if (!accessToken) {
+    const serverMessage = normalizeToken(payload.error ?? payload.message);
+    throw new ApiError(serverMessage ?? "Некорректный ответ сервера авторизации.", 502, "http");
+  }
+
+  const userPayload = asRecord(payload.user);
+  const role = normalizeRole(payload.role) ?? normalizeRole(userPayload.role);
+  if (!role) {
+    throw new ApiError("Некорректная роль в ответе сервера авторизации.", 502, "http");
+  }
+
+  const userId =
+    normalizeToken(userPayload.id ?? payload.userId ?? payload.user_id ?? payload.staffUserId ?? payload.staff_user_id) ??
+    "unknown";
+  const userName = normalizeToken(userPayload.name ?? payload.userName ?? payload.user_name ?? payload.name) ?? "Сотрудник";
+
+  const refreshToken = normalizeToken(payload.refreshToken ?? payload.refresh_token ?? payload.refresh) ?? "";
+
+  const expiresAtRaw = Number(payload.expiresAt ?? payload.expires_at);
+  const expiresInSec = Number(payload.expiresIn ?? payload.expires_in);
+  let expiresAt = Number.isFinite(expiresAtRaw) ? expiresAtRaw : NaN;
+  if (!Number.isFinite(expiresAt) && Number.isFinite(expiresInSec)) {
+    expiresAt = Date.now() + expiresInSec * 1000;
+  }
+  if (!Number.isFinite(expiresAt)) {
+    expiresAt = Date.now() + 30 * 60 * 1000;
+  }
+
+  return {
+    accessToken,
+    refreshToken,
+    role,
+    user: {
+      id: userId,
+      name: userName,
+      role,
+    },
+    expiresAt,
+  };
+}
+
+async function readRefreshToken() {
+  try {
+    const fromSecureStore = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+    if (fromSecureStore) {
+      return fromSecureStore;
+    }
+  } catch (error) {
+    console.warn("[auth] Failed to read refresh token from SecureStore, falling back to AsyncStorage", error);
+  }
+
+  try {
+    return await AsyncStorage.getItem(REFRESH_TOKEN_FALLBACK_KEY);
+  } catch (error) {
+    console.warn("[auth] Failed to read refresh token from AsyncStorage", error);
+    return null;
+  }
+}
+
+async function writeRefreshToken(refreshToken: unknown) {
+  const normalizedRefreshToken = normalizeToken(refreshToken);
+  if (!normalizedRefreshToken) {
+    await clearRefreshToken();
+    return false;
+  }
+
+  try {
+    await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, normalizedRefreshToken);
+    try {
+      await AsyncStorage.removeItem(REFRESH_TOKEN_FALLBACK_KEY);
+    } catch {
+      // best-effort cleanup only
+    }
+    return true;
+  } catch (error) {
+    console.warn("[auth] Failed to save refresh token in SecureStore, using AsyncStorage fallback", error);
+  }
+
+  try {
+    await AsyncStorage.setItem(REFRESH_TOKEN_FALLBACK_KEY, normalizedRefreshToken);
+    return true;
+  } catch (error) {
+    console.warn("[auth] Failed to save refresh token in fallback storage", error);
+    return false;
+  }
 }
 
 async function clearRefreshToken() {
-  await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+  try {
+    await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+  } catch (error) {
+    console.warn("[auth] Failed to clear refresh token from SecureStore", error);
+  }
+
+  try {
+    await AsyncStorage.removeItem(REFRESH_TOKEN_FALLBACK_KEY);
+  } catch (error) {
+    console.warn("[auth] Failed to clear refresh token from AsyncStorage", error);
+  }
 }
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function persistAuth(response: StaffLoginResponse) {
-  accessTokenExpiresAtMemory = response.expiresAt;
-  setAccessToken(response.accessToken);
-  await writeRefreshToken(response.refreshToken);
+async function persistAuth(response: unknown): Promise<StaffLoginResponse> {
+  const normalized = normalizeStaffLoginResponse(response);
+  accessTokenExpiresAtMemory = normalized.expiresAt;
+  setAccessToken(normalized.accessToken);
+
+  const storedRefreshToken = await writeRefreshToken(normalized.refreshToken);
+  if (!storedRefreshToken) {
+    console.warn("[auth] Login response does not contain refreshToken; session refresh after expiry is unavailable");
+  }
+
+  return normalized;
 }
 
 export async function clearStoredAuth() {
@@ -199,7 +332,8 @@ async function rawRequest<T>(path: string, options: RequestOptions = {}): Promis
       ...rest,
       signal: controller.signal,
       headers: {
-        ...(isFormData ? {} : { "Content-Type": "application/json" }),
+        Accept: "application/json",
+        ...(isFormData ? {} : { "Content-Type": "application/json; charset=utf-8" }),
         ...(auth && getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}),
         ...(headers || {}),
       },
@@ -228,13 +362,12 @@ async function refreshAccessToken(): Promise<StaffLoginResponse | null> {
     if (!refreshToken) return null;
 
     try {
-      const response = await rawRequest<StaffLoginResponse>("/api/staff/auth/refresh", {
+      const response = await rawRequest<Record<string, unknown>>("/api/staff/auth/refresh", {
         method: "POST",
         auth: false,
         body: JSON.stringify({ refreshToken }),
       });
-      await persistAuth(response);
-      return response;
+      return await persistAuth(response);
     } catch {
       await clearStoredAuth();
       return null;
@@ -288,9 +421,8 @@ export async function loginStaff(login: string, password: string) {
   } as const;
 
   try {
-    const response = await rawRequest<StaffLoginResponse>("/api/staff/auth/login", payload);
-    await persistAuth(response);
-    return response;
+    const response = await rawRequest<Record<string, unknown>>("/api/staff/auth/login", payload);
+    return await persistAuth(response);
   } catch (error) {
     if (!(error instanceof ApiError) || error.code !== "network") {
       throw error;
@@ -298,9 +430,8 @@ export async function loginStaff(login: string, password: string) {
 
     // Mobile networks can briefly drop the very first request after app wake/start.
     await sleep(700);
-    const response = await rawRequest<StaffLoginResponse>("/api/staff/auth/login", payload);
-    await persistAuth(response);
-    return response;
+    const response = await rawRequest<Record<string, unknown>>("/api/staff/auth/login", payload);
+    return await persistAuth(response);
   }
 }
 
@@ -422,9 +553,16 @@ export async function fetchWaiterShiftSummary() {
 }
 
 export async function fetchWaiterReviews(params?: { cursor?: string; limit?: number }) {
-  return request<ReviewHistoryPage>("/api/staff/waiter/reviews", {
-    query: params ?? {},
-  });
+  try {
+    return await request<ReviewHistoryPage>("/api/staff/waiter/reviews", {
+      query: params ?? {},
+    });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return EMPTY_REVIEW_HISTORY_PAGE;
+    }
+    throw error;
+  }
 }
 
 export async function fetchManagerHall() {
@@ -465,9 +603,16 @@ export async function fetchManagerReviews(params?: {
   cursor?: string;
   limit?: number;
 }) {
-  return request<ReviewHistoryPage>("/api/staff/manager/reviews", {
-    query: params ?? {},
-  });
+  try {
+    return await request<ReviewHistoryPage>("/api/staff/manager/reviews", {
+      query: params ?? {},
+    });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return EMPTY_REVIEW_HISTORY_PAGE;
+    }
+    throw error;
+  }
 }
 
 export async function fetchManagerRestaurantSettings() {
