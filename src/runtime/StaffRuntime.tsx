@@ -22,6 +22,7 @@ import { useWaiterRealtime } from "../realtime/useWaiterRealtime";
 import { colors } from "../theme/colors";
 import type { PushDeviceRegistration } from "../types/domain";
 import { createIncomingServiceAlert, createIncomingServiceAlertFromRealtime, type IncomingServiceAlert } from "./incomingServiceAlerts";
+import { createAndroidPushRegistration, getAndroidNotificationChannelInput, NOTIFICATION_CHANNEL_ID } from "./pushRegistration";
 
 const DEVICE_ID_KEY = "giotto.mobile.deviceId.v1";
 const ALERT_DEDUPE_MS = 6_000;
@@ -30,7 +31,6 @@ const PUSH_RESYNC_INTERVAL_MS = 60_000;
 const PUSH_SYNC_MAX_ATTEMPTS = 3;
 const PUSH_SYNC_RETRY_DELAYS_MS = [900, 2_100];
 const VIBRATION_PATTERN = Platform.OS === "android" ? [0, 180, 120, 220] : 350;
-const NOTIFICATION_CHANNEL_ID = "giotto-service-alerts";
 const FOREGROUND_SIGNAL_FLAG = "__giottoForegroundSignal";
 
 const isExpoGo = Constants.appOwnership === "expo";
@@ -88,6 +88,13 @@ async function registerForPush(): Promise<PushDeviceRegistration | null> {
     Notifications = await import("expo-notifications");
   }
 
+  if (Platform.OS === "android") {
+    await Notifications.setNotificationChannelAsync(
+      NOTIFICATION_CHANNEL_ID,
+      getAndroidNotificationChannelInput(Notifications),
+    );
+  }
+
   const permission = await Notifications.getPermissionsAsync();
   let granted =
     typeof (permission as { granted?: unknown }).granted === "boolean"
@@ -105,6 +112,28 @@ async function registerForPush(): Promise<PushDeviceRegistration | null> {
   if (!granted) {
     console.info("[push] Notification permission is not granted");
     return null;
+  }
+
+  const deviceId = await getOrCreateDeviceId();
+  const appVersion = Constants.expoConfig?.version ?? "1.0.0";
+
+  if (Platform.OS === "android") {
+    try {
+      const devicePushToken = await Notifications.getDevicePushTokenAsync();
+      const payload = createAndroidPushRegistration({
+        devicePushToken,
+        deviceId,
+        appVersion,
+      });
+      if (!payload) {
+        console.warn("[push] Android device push token response is invalid");
+        return null;
+      }
+      return payload;
+    } catch (error) {
+      console.warn("[push] Failed to obtain Android FCM device token", error);
+      return null;
+    }
   }
 
   const projectId =
@@ -132,8 +161,8 @@ async function registerForPush(): Promise<PushDeviceRegistration | null> {
   return {
     token: tokenResponse.data.trim(),
     platform: "expo",
-    appVersion: Constants.expoConfig?.version ?? "1.0.0",
-    deviceId: await getOrCreateDeviceId(),
+    appVersion,
+    deviceId,
   };
 }
 
@@ -308,23 +337,17 @@ export function StaffRuntime() {
   );
 
   useEffect(() => {
-    void setupNotifications(appStateRef);
+    void (async () => {
+      await setupNotifications(appStateRef);
 
-    if (Platform.OS === "android") {
-      void (async () => {
+      if (Platform.OS === "android") {
         if (!Notifications) Notifications = await import("expo-notifications");
-        await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNEL_ID, {
-          name: "Giotto service alerts",
-          importance: Notifications.AndroidImportance.MAX,
-          vibrationPattern: [0, 180, 120, 220],
-          enableVibrate: true,
-          sound: "default",
-          bypassDnd: false,
-          showBadge: true,
-          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-        });
-      })();
-    }
+        await Notifications.setNotificationChannelAsync(
+          NOTIFICATION_CHANNEL_ID,
+          getAndroidNotificationChannelInput(Notifications),
+        );
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -368,21 +391,26 @@ export function StaffRuntime() {
       });
 
       pushTokenSubscription = Notifications.addPushTokenListener((token) => {
-        const refreshedToken = typeof token?.data === "string" ? token.data.trim() : "";
-        if (!refreshedToken) return;
-
-        console.info("[push] Expo push token refreshed");
         void (async () => {
           const deviceId = await getOrCreateDeviceId();
-          await syncPushToken({
-            force: true,
-            payload: {
-              token: refreshedToken,
-              platform: "expo",
-              appVersion: Constants.expoConfig?.version ?? "1.0.0",
-              deviceId,
-            },
+          const payload = createAndroidPushRegistration({
+            devicePushToken: token,
+            deviceId,
+            appVersion: Constants.expoConfig?.version ?? "1.0.0",
           });
+          if (payload) {
+            console.info("[push] Android FCM token refreshed");
+            await syncPushToken({
+              force: true,
+              payload,
+            });
+            return;
+          }
+
+          if (token.type === "ios") {
+            console.info("[push] Native iOS push token refreshed, resyncing Expo push token");
+            await syncPushToken({ force: true });
+          }
         })();
       });
 

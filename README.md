@@ -11,7 +11,7 @@
 - Детальная карточка стола.
 - `Acknowledge`, `Add order`, session note с autosave, `All service completed`.
 - Foreground realtime через один app-level `GET /api/staff/realtime/stream` с cursor catch-up.
-- Expo push для waiter-вызовов и запросов счёта.
+- Android waiter push через native FCM token и `expo-notifications`.
 
 ### Manager v1
 - `Hall` как live monitor зала.
@@ -88,6 +88,8 @@ EXPO_PUBLIC_API_BASE_URL=http://192.168.1.20:3000
 ## Push notifications
 
 Для Android push в Expo SDK 55 нужен dev build, а не Expo Go.
+Android waiter-устройства регистрируют native FCM token через `getDevicePushTokenAsync()`.
+`EXPO_PUBLIC_EAS_PROJECT_ID` нужен для Expo Push Service path на iOS, но Android direct FCM от него не зависит.
 
 ```bash
 npm install -g eas-cli
