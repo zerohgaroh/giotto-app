@@ -17,7 +17,7 @@ test("createIncomingServiceAlertFromRealtime builds waiter alert payload", () =>
     tableId: 12,
     requestType: "waiter",
     title: "Стол 12 вызывает официанта",
-    message: "Guests requested a waiter",
+    message: "Гости ждут официанта.",
     ts: 200,
   });
 });
@@ -54,4 +54,20 @@ test("createIncomingServiceAlertFromRealtime builds guest order alert payload", 
     message: "Гости отправили заказ из корзины.",
     ts: 400,
   });
+});
+
+test("createIncomingServiceAlert normalizes legacy English reasons to Russian copy", () => {
+  const bill = createIncomingServiceAlert({
+    tableId: 5,
+    requestType: "bill",
+    reason: "Guests are ready to pay",
+  });
+  const order = createIncomingServiceAlert({
+    tableId: 8,
+    requestType: "order",
+    reason: "3 items from guest cart.",
+  });
+
+  assert.equal(bill?.message, "Гости готовы оплатить заказ.");
+  assert.equal(order?.message, "Гости отправили заказ из корзины.");
 });

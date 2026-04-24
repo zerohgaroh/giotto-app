@@ -12,6 +12,27 @@ export type IncomingServiceAlert = {
   ts: number;
 };
 
+function normalizeLegacyReason(requestType: IncomingServiceAlertType, value: string) {
+  const normalized = value.trim();
+  if (!normalized) return "";
+
+  const canonical = normalized.replace(/\.+$/u, "").trim().toLowerCase();
+  if (canonical === "guests requested a waiter") {
+    return "Гости ждут официанта.";
+  }
+  if (canonical === "guests are ready to pay") {
+    return "Гости готовы оплатить заказ.";
+  }
+  if (canonical === "new order from guest cart") {
+    return "Гости отправили заказ из корзины.";
+  }
+  if (/^\d+\s+items?\s+from guest cart$/u.test(canonical)) {
+    return "Гости отправили заказ из корзины.";
+  }
+
+  return normalized;
+}
+
 function normalizeTableId(value: unknown) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
@@ -31,7 +52,7 @@ function buildTitle(tableId: number, requestType: IncomingServiceAlertType) {
 }
 
 function buildMessage(requestType: IncomingServiceAlertType, reason?: string) {
-  const normalizedReason = typeof reason === "string" ? reason.trim() : "";
+  const normalizedReason = typeof reason === "string" ? normalizeLegacyReason(requestType, reason) : "";
   if (normalizedReason) return normalizedReason;
   if (requestType === "order") return "Гости отправили заказ из корзины.";
   return requestType === "bill" ? "Гости готовы оплатить заказ." : "Гости ждут официанта.";

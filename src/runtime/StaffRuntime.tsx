@@ -30,8 +30,8 @@ const ALERT_VISIBLE_MS = 4_500;
 const PUSH_RESYNC_INTERVAL_MS = 60_000;
 const PUSH_SYNC_MAX_ATTEMPTS = 3;
 const PUSH_SYNC_RETRY_DELAYS_MS = [900, 2_100];
+const PUSH_MAX_AGE_MS = 90_000;
 const VIBRATION_PATTERN = Platform.OS === "android" ? [0, 180, 120, 220] : 350;
-const FOREGROUND_SIGNAL_FLAG = "__giottoForegroundSignal";
 const pushDebugEnabled = __DEV__ || process.env.EXPO_PUBLIC_PUSH_DEBUG === "1";
 
 const isExpoGo = Constants.appOwnership === "expo";
@@ -48,6 +48,22 @@ function previewPushToken(token: string) {
 
 function extractTraceId(data: Record<string, unknown> | undefined) {
   return typeof data?.traceId === "string" && data.traceId.trim() ? data.traceId.trim() : undefined;
+}
+
+function extractPushSentAt(data: Record<string, unknown> | undefined) {
+  const raw =
+    typeof data?.sentAt === "string" || typeof data?.sentAt === "number"
+      ? Number(data.sentAt)
+      : typeof data?.ts === "string" || typeof data?.ts === "number"
+        ? Number(data.ts)
+        : NaN;
+  return Number.isFinite(raw) && raw > 0 ? raw : null;
+}
+
+function isPushStale(data: Record<string, unknown> | undefined, now = Date.now()) {
+  const sentAt = extractPushSentAt(data);
+  if (!sentAt) return false;
+  return now - sentAt > PUSH_MAX_AGE_MS;
 }
 
 function logPushDebug(event: string, details?: Record<string, unknown>) {
@@ -74,11 +90,9 @@ async function setupNotifications(appStateRef: { current: AppStateStatus }) {
   Notifications.setNotificationHandler({
     handleNotification: async (notification) => {
       const isActive = appStateRef.current === "active";
-      const isForegroundSignal = notification.request.content.data?.[FOREGROUND_SIGNAL_FLAG] === true;
       logPushDebug("notification_handler_invoked", {
         identifier: notification.request.identifier,
         isActive,
-        isForegroundSignal,
         traceId: extractTraceId(notification.request.content.data as Record<string, unknown> | undefined),
         requestType:
           typeof notification.request.content.data?.requestType === "string"
@@ -86,11 +100,11 @@ async function setupNotifications(appStateRef: { current: AppStateStatus }) {
             : undefined,
       });
       return {
-        shouldShowAlert: !isActive || isForegroundSignal,
-        shouldPlaySound: !isActive || isForegroundSignal,
+        shouldShowAlert: !isActive,
+        shouldPlaySound: !isActive,
         shouldSetBadge: false,
-        shouldShowBanner: !isActive || isForegroundSignal,
-        shouldShowList: !isActive || isForegroundSignal,
+        shouldShowBanner: !isActive,
+        shouldShowList: !isActive,
       };
     },
   });
@@ -314,35 +328,6 @@ export function StaffRuntime() {
       tableId: alert.tableId,
       requestType: alert.requestType,
     });
-
-    try {
-      if (!Notifications) Notifications = await import("expo-notifications");
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: alert.title,
-          body: alert.message,
-          sound: "default",
-          data: {
-            [FOREGROUND_SIGNAL_FLAG]: true,
-            tableId: alert.tableId,
-            requestType: alert.requestType,
-          },
-          ...(Platform.OS === "android" ? { channelId: NOTIFICATION_CHANNEL_ID } : {}),
-        },
-        trigger: null,
-      });
-      logPushDebug("foreground_signal_notification_scheduled", {
-        tableId: alert.tableId,
-        requestType: alert.requestType,
-      });
-    } catch (error) {
-      // Sound should be best-effort only.
-      logPushDebug("foreground_signal_schedule_failed", {
-        tableId: alert.tableId,
-        requestType: alert.requestType,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
   }, []);
 
   const dismissCurrentAlert = useCallback(() => {
@@ -551,29 +536,69 @@ export function StaffRuntime() {
       logPushDebug("notification_listeners_registering");
 
       responseSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
-        logPushDebug("notification_response_received", {
-          identifier: response.notification.request.identifier,
-          actionIdentifier: response.actionIdentifier,
-          traceId: extractTraceId(response.notification.request.content.data as Record<string, unknown> | undefined),
-          requestType:
-            typeof response.notification.request.content.data?.requestType === "string"
-              ? response.notification.request.content.data.requestType
-              : undefined,
-          tableId: response.notification.request.content.data?.tableId,
-        });
-        maybeOpenTableFromData(response.notification.request.content.data as Record<string, unknown>);
+        void (async () => {
+          const notificationData = response.notification.request.content.data as Record<string, unknown> | undefined;
+          const identifier = response.notification.request.identifier;
+          const stale = isPushStale(notificationData);
+          logPushDebug("notification_response_received", {
+            identifier,
+            actionIdentifier: response.actionIdentifier,
+            traceId: extractTraceId(notificationData),
+            requestType:
+              typeof response.notification.request.content.data?.requestType === "string"
+                ? response.notification.request.content.data.requestType
+                : undefined,
+            tableId: response.notification.request.content.data?.tableId,
+            stale,
+          });
+          if (stale) {
+            logPushDebug("notification_response_ignored_stale", {
+              identifier,
+              traceId: extractTraceId(notificationData),
+              sentAt: extractPushSentAt(notificationData),
+            });
+          } else {
+            maybeOpenTableFromData(notificationData);
+          }
+          try {
+            await Notifications.clearLastNotificationResponseAsync();
+            await Notifications.dismissNotificationAsync(identifier);
+          } catch (error) {
+            logPushDebug("notification_response_cleanup_failed", {
+              identifier,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        })();
       });
 
       receivedSubscription = Notifications.addNotificationReceivedListener((notification) => {
+        const notificationData = notification.request.content.data as Record<string, unknown> | undefined;
+        if (isPushStale(notificationData)) {
+          logPushDebug("notification_received_ignored_stale", {
+            identifier: notification.request.identifier,
+            traceId: extractTraceId(notificationData),
+            sentAt: extractPushSentAt(notificationData),
+            title: notification.request.content.title,
+          });
+          void Notifications.dismissNotificationAsync(notification.request.identifier).catch((error) => {
+            logPushDebug("notification_dismiss_failed", {
+              identifier: notification.request.identifier,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          });
+          return;
+        }
         logPushDebug("notification_received", {
           identifier: notification.request.identifier,
-          traceId: extractTraceId(notification.request.content.data as Record<string, unknown> | undefined),
+          traceId: extractTraceId(notificationData),
           requestType:
             typeof notification.request.content.data?.requestType === "string"
               ? notification.request.content.data.requestType
               : undefined,
           tableId: notification.request.content.data?.tableId,
           title: notification.request.content.title,
+          sentAt: extractPushSentAt(notificationData),
         });
         enqueueIncomingAlert(
           createIncomingServiceAlert({
@@ -581,7 +606,7 @@ export function StaffRuntime() {
             tableId: notification.request.content.data?.tableId,
             requestType: notification.request.content.data?.requestType,
             reason: notification.request.content.body,
-            ts: Date.now(),
+            ts: extractPushSentAt(notificationData) ?? Date.now(),
           }),
           { playSignal: true },
         );
@@ -620,16 +645,34 @@ export function StaffRuntime() {
           logPushDebug("notification_last_response_empty");
           return;
         }
+        const notificationData = response.notification.request.content.data as Record<string, unknown> | undefined;
+        const identifier = response.notification.request.identifier;
+        const stale = isPushStale(notificationData);
         logPushDebug("notification_last_response_found", {
-          identifier: response.notification.request.identifier,
-          traceId: extractTraceId(response.notification.request.content.data as Record<string, unknown> | undefined),
+          identifier,
+          traceId: extractTraceId(notificationData),
           requestType:
             typeof response.notification.request.content.data?.requestType === "string"
               ? response.notification.request.content.data.requestType
               : undefined,
           tableId: response.notification.request.content.data?.tableId,
+          stale,
         });
-        maybeOpenTableFromData(response.notification.request.content.data as Record<string, unknown>);
+        if (!stale) {
+          maybeOpenTableFromData(notificationData);
+        } else {
+          logPushDebug("notification_last_response_ignored_stale", {
+            identifier,
+            traceId: extractTraceId(notificationData),
+            sentAt: extractPushSentAt(notificationData),
+          });
+        }
+        void Notifications.clearLastNotificationResponseAsync().catch((error) => {
+          logPushDebug("notification_last_response_clear_failed", {
+            identifier,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
       });
     })();
 
