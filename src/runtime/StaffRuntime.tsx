@@ -32,11 +32,33 @@ const PUSH_SYNC_MAX_ATTEMPTS = 3;
 const PUSH_SYNC_RETRY_DELAYS_MS = [900, 2_100];
 const VIBRATION_PATTERN = Platform.OS === "android" ? [0, 180, 120, 220] : 350;
 const FOREGROUND_SIGNAL_FLAG = "__giottoForegroundSignal";
+const pushDebugEnabled = __DEV__ || process.env.EXPO_PUBLIC_PUSH_DEBUG === "1";
 
 const isExpoGo = Constants.appOwnership === "expo";
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function previewPushToken(token: string) {
+  if (!token) return "(empty)";
+  if (token.length <= 22) return token;
+  return `${token.slice(0, 14)}...${token.slice(-8)}`;
+}
+
+function extractTraceId(data: Record<string, unknown> | undefined) {
+  return typeof data?.traceId === "string" && data.traceId.trim() ? data.traceId.trim() : undefined;
+}
+
+function logPushDebug(event: string, details?: Record<string, unknown>) {
+  if (!pushDebugEnabled) return;
+
+  if (details) {
+    console.info("[push][app]", event, details);
+    return;
+  }
+
+  console.info("[push][app]", event);
 }
 
 async function setupNotifications(appStateRef: { current: AppStateStatus }) {
@@ -45,10 +67,24 @@ async function setupNotifications(appStateRef: { current: AppStateStatus }) {
     Notifications = await import("expo-notifications");
   }
 
+  logPushDebug("notification_handler_configuring", {
+    platform: Platform.OS,
+  });
+
   Notifications.setNotificationHandler({
     handleNotification: async (notification) => {
       const isActive = appStateRef.current === "active";
       const isForegroundSignal = notification.request.content.data?.[FOREGROUND_SIGNAL_FLAG] === true;
+      logPushDebug("notification_handler_invoked", {
+        identifier: notification.request.identifier,
+        isActive,
+        isForegroundSignal,
+        traceId: extractTraceId(notification.request.content.data as Record<string, unknown> | undefined),
+        requestType:
+          typeof notification.request.content.data?.requestType === "string"
+            ? notification.request.content.data.requestType
+            : undefined,
+      });
       return {
         shouldShowAlert: !isActive || isForegroundSignal,
         shouldPlaySound: !isActive || isForegroundSignal,
@@ -62,10 +98,18 @@ async function setupNotifications(appStateRef: { current: AppStateStatus }) {
 
 async function getOrCreateDeviceId() {
   const existing = await SecureStore.getItemAsync(DEVICE_ID_KEY);
-  if (existing) return existing;
+  if (existing) {
+    logPushDebug("device_id_reused", {
+      deviceId: existing,
+    });
+    return existing;
+  }
 
   const created = `${Platform.OS}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
   await SecureStore.setItemAsync(DEVICE_ID_KEY, created);
+  logPushDebug("device_id_created", {
+    deviceId: created,
+  });
   return created;
 }
 
@@ -76,6 +120,12 @@ function extractTableId(input: unknown) {
 }
 
 async function registerForPush(): Promise<PushDeviceRegistration | null> {
+  logPushDebug("register_for_push_started", {
+    platform: Platform.OS,
+    isDevice: Device.isDevice,
+    isExpoGo,
+  });
+
   if (!Device.isDevice) {
     console.info("[push] Skipping registration: physical device is required");
     return null;
@@ -89,13 +139,24 @@ async function registerForPush(): Promise<PushDeviceRegistration | null> {
   }
 
   if (Platform.OS === "android") {
+    logPushDebug("android_channel_ensuring_before_token", {
+      channelId: NOTIFICATION_CHANNEL_ID,
+    });
     await Notifications.setNotificationChannelAsync(
       NOTIFICATION_CHANNEL_ID,
       getAndroidNotificationChannelInput(Notifications),
     );
+    logPushDebug("android_channel_ready_before_token", {
+      channelId: NOTIFICATION_CHANNEL_ID,
+    });
   }
 
   const permission = await Notifications.getPermissionsAsync();
+  logPushDebug("notification_permission_snapshot", {
+    status: (permission as { status?: string }).status,
+    granted: Boolean((permission as { granted?: boolean }).granted),
+    canAskAgain: (permission as { canAskAgain?: boolean }).canAskAgain,
+  });
   let granted =
     typeof (permission as { granted?: unknown }).granted === "boolean"
       ? Boolean((permission as { granted?: boolean }).granted)
@@ -103,6 +164,11 @@ async function registerForPush(): Promise<PushDeviceRegistration | null> {
 
   if (!granted) {
     const request = await Notifications.requestPermissionsAsync();
+    logPushDebug("notification_permission_requested", {
+      status: (request as { status?: string }).status,
+      granted: Boolean((request as { granted?: boolean }).granted),
+      canAskAgain: (request as { canAskAgain?: boolean }).canAskAgain,
+    });
     granted =
       typeof (request as { granted?: unknown }).granted === "boolean"
         ? Boolean((request as { granted?: boolean }).granted)
@@ -120,6 +186,11 @@ async function registerForPush(): Promise<PushDeviceRegistration | null> {
   if (Platform.OS === "android") {
     try {
       const devicePushToken = await Notifications.getDevicePushTokenAsync();
+      logPushDebug("android_device_push_token_received", {
+        tokenType: devicePushToken.type,
+        tokenPreview: typeof devicePushToken.data === "string" ? previewPushToken(devicePushToken.data) : "(non-string)",
+        deviceId,
+      });
       const payload = createAndroidPushRegistration({
         devicePushToken,
         deviceId,
@@ -129,6 +200,12 @@ async function registerForPush(): Promise<PushDeviceRegistration | null> {
         console.warn("[push] Android device push token response is invalid");
         return null;
       }
+      logPushDebug("android_push_registration_payload_ready", {
+        platform: payload.platform,
+        tokenPreview: previewPushToken(payload.token),
+        deviceId: payload.deviceId,
+        appVersion: payload.appVersion,
+      });
       return payload;
     } catch (error) {
       console.warn("[push] Failed to obtain Android FCM device token", error);
@@ -145,6 +222,11 @@ async function registerForPush(): Promise<PushDeviceRegistration | null> {
     return null;
   }
 
+  logPushDebug("expo_push_project_id_resolved", {
+    projectId,
+    deviceId,
+  });
+
   let tokenResponse: { data: string };
   try {
     tokenResponse = await Notifications.getExpoPushTokenAsync({ projectId });
@@ -158,6 +240,11 @@ async function registerForPush(): Promise<PushDeviceRegistration | null> {
     return null;
   }
 
+  logPushDebug("expo_push_token_received", {
+    tokenPreview: previewPushToken(tokenResponse.data.trim()),
+    deviceId,
+  });
+
   return {
     token: tokenResponse.data.trim(),
     platform: "expo",
@@ -168,9 +255,21 @@ async function registerForPush(): Promise<PushDeviceRegistration | null> {
 
 function maybeOpenTableFromData(data: Record<string, unknown> | undefined) {
   const tableId = extractTableId(data?.tableId);
-  if (!tableId) return;
+  if (!tableId) {
+    logPushDebug("notification_navigation_skipped_missing_table", {
+      traceId: extractTraceId(data),
+      requestType: typeof data?.requestType === "string" ? data.requestType : undefined,
+      rawTableId: data?.tableId,
+    });
+    return;
+  }
 
   const requestType = typeof data?.requestType === "string" ? data.requestType : undefined;
+  logPushDebug("notification_navigation_resolved", {
+    traceId: extractTraceId(data),
+    tableId,
+    requestType,
+  });
   if (requestType === "waiter" || requestType === "bill") {
     openWaiterQueueForTable(tableId);
     return;
@@ -211,6 +310,10 @@ export function StaffRuntime() {
 
   const playForegroundSignal = useCallback(async (alert: IncomingServiceAlert) => {
     Vibration.vibrate(VIBRATION_PATTERN);
+    logPushDebug("foreground_signal_vibrate", {
+      tableId: alert.tableId,
+      requestType: alert.requestType,
+    });
 
     try {
       if (!Notifications) Notifications = await import("expo-notifications");
@@ -228,8 +331,17 @@ export function StaffRuntime() {
         },
         trigger: null,
       });
-    } catch {
+      logPushDebug("foreground_signal_notification_scheduled", {
+        tableId: alert.tableId,
+        requestType: alert.requestType,
+      });
+    } catch (error) {
       // Sound should be best-effort only.
+      logPushDebug("foreground_signal_schedule_failed", {
+        tableId: alert.tableId,
+        requestType: alert.requestType,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }, []);
 
@@ -250,6 +362,13 @@ export function StaffRuntime() {
   const enqueueIncomingAlert = useCallback(
     (alert: IncomingServiceAlert | null, options?: { playSignal?: boolean }) => {
       if (!alert || !isWaiterSession || appStateRef.current !== "active") {
+        logPushDebug("incoming_alert_skipped", {
+          hasAlert: Boolean(alert),
+          isWaiterSession,
+          appState: appStateRef.current,
+          tableId: alert?.tableId,
+          requestType: alert?.requestType,
+        });
         return;
       }
 
@@ -257,11 +376,23 @@ export function StaffRuntime() {
       pruneSeenAlerts(now);
       const lastSeenAt = lastSeenAtRef.current.get(alert.dedupeKey) ?? 0;
       if (now - lastSeenAt < ALERT_DEDUPE_MS) {
+        logPushDebug("incoming_alert_deduped", {
+          dedupeKey: alert.dedupeKey,
+          elapsedMs: now - lastSeenAt,
+          tableId: alert.tableId,
+          requestType: alert.requestType,
+        });
         return;
       }
 
       lastSeenAtRef.current.set(alert.dedupeKey, now);
       setAlertQueue((current) => [...current, alert]);
+      logPushDebug("incoming_alert_enqueued", {
+        dedupeKey: alert.dedupeKey,
+        tableId: alert.tableId,
+        requestType: alert.requestType,
+        playSignal: options?.playSignal !== false,
+      });
 
       if (options?.playSignal !== false) {
         void playForegroundSignal(alert);
@@ -282,7 +413,19 @@ export function StaffRuntime() {
   const syncPushTokenWithRetry = useCallback(async (payload: PushDeviceRegistration) => {
     for (let attempt = 0; attempt < PUSH_SYNC_MAX_ATTEMPTS; attempt += 1) {
       try {
+        logPushDebug("push_token_sync_attempt", {
+          attempt: attempt + 1,
+          platform: payload.platform,
+          tokenPreview: previewPushToken(payload.token),
+          deviceId: payload.deviceId,
+        });
         await registerPushToken(payload);
+        logPushDebug("push_token_sync_success", {
+          attempt: attempt + 1,
+          platform: payload.platform,
+          tokenPreview: previewPushToken(payload.token),
+          deviceId: payload.deviceId,
+        });
         return true;
       } catch (error) {
         const reason =
@@ -301,21 +444,46 @@ export function StaffRuntime() {
   }, []);
 
   const syncPushToken = useCallback(async (options?: { force?: boolean; payload?: PushDeviceRegistration }) => {
-    if (!session || session.role !== "waiter") return;
-    if (pushSyncInFlightRef.current) return;
+    if (!session || session.role !== "waiter") {
+      logPushDebug("push_token_sync_skipped_session", {
+        hasSession: Boolean(session),
+        role: session?.role,
+      });
+      return;
+    }
+    if (pushSyncInFlightRef.current) {
+      logPushDebug("push_token_sync_skipped_in_flight");
+      return;
+    }
 
     const now = Date.now();
     if (!options?.force && now - lastPushSyncAtRef.current < PUSH_RESYNC_INTERVAL_MS) {
+      logPushDebug("push_token_sync_skipped_cooldown", {
+        elapsedMs: now - lastPushSyncAtRef.current,
+        cooldownMs: PUSH_RESYNC_INTERVAL_MS,
+      });
       return;
     }
     pushSyncInFlightRef.current = true;
 
     try {
+      logPushDebug("push_token_sync_started", {
+        force: Boolean(options?.force),
+        hasPayloadOverride: Boolean(options?.payload),
+      });
       const payload = options?.payload ?? (await registerForPush());
-      if (!payload) return;
+      if (!payload) {
+        logPushDebug("push_token_sync_aborted_no_payload");
+        return;
+      }
       const synced = await syncPushTokenWithRetry(payload);
       if (synced) {
         lastPushSyncAtRef.current = Date.now();
+        logPushDebug("push_token_sync_completed", {
+          platform: payload.platform,
+          tokenPreview: previewPushToken(payload.token),
+          deviceId: payload.deviceId,
+        });
       }
     } catch (error) {
       console.warn("[push] Failed to register device for remote notifications", error);
@@ -346,12 +514,19 @@ export function StaffRuntime() {
           NOTIFICATION_CHANNEL_ID,
           getAndroidNotificationChannelInput(Notifications),
         );
+        logPushDebug("android_channel_ready_on_mount", {
+          channelId: NOTIFICATION_CHANNEL_ID,
+        });
       }
     })();
   }, []);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextState) => {
+      logPushDebug("app_state_changed", {
+        previousState: appStateRef.current,
+        nextState,
+      });
       appStateRef.current = nextState;
       if (nextState === "active") {
         void syncPushToken();
@@ -373,11 +548,33 @@ export function StaffRuntime() {
       if (!Notifications) Notifications = await import("expo-notifications");
       if (cancelled) return;
 
+      logPushDebug("notification_listeners_registering");
+
       responseSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
+        logPushDebug("notification_response_received", {
+          identifier: response.notification.request.identifier,
+          actionIdentifier: response.actionIdentifier,
+          traceId: extractTraceId(response.notification.request.content.data as Record<string, unknown> | undefined),
+          requestType:
+            typeof response.notification.request.content.data?.requestType === "string"
+              ? response.notification.request.content.data.requestType
+              : undefined,
+          tableId: response.notification.request.content.data?.tableId,
+        });
         maybeOpenTableFromData(response.notification.request.content.data as Record<string, unknown>);
       });
 
       receivedSubscription = Notifications.addNotificationReceivedListener((notification) => {
+        logPushDebug("notification_received", {
+          identifier: notification.request.identifier,
+          traceId: extractTraceId(notification.request.content.data as Record<string, unknown> | undefined),
+          requestType:
+            typeof notification.request.content.data?.requestType === "string"
+              ? notification.request.content.data.requestType
+              : undefined,
+          tableId: notification.request.content.data?.tableId,
+          title: notification.request.content.title,
+        });
         enqueueIncomingAlert(
           createIncomingServiceAlert({
             id: notification.request.identifier,
@@ -392,6 +589,10 @@ export function StaffRuntime() {
 
       pushTokenSubscription = Notifications.addPushTokenListener((token) => {
         void (async () => {
+          logPushDebug("push_token_listener_fired", {
+            tokenType: token.type,
+            tokenPreview: typeof token.data === "string" ? previewPushToken(token.data) : "(non-string)",
+          });
           const deviceId = await getOrCreateDeviceId();
           const payload = createAndroidPushRegistration({
             devicePushToken: token,
@@ -415,13 +616,26 @@ export function StaffRuntime() {
       });
 
       void Notifications.getLastNotificationResponseAsync().then((response) => {
-        if (!response) return;
+        if (!response) {
+          logPushDebug("notification_last_response_empty");
+          return;
+        }
+        logPushDebug("notification_last_response_found", {
+          identifier: response.notification.request.identifier,
+          traceId: extractTraceId(response.notification.request.content.data as Record<string, unknown> | undefined),
+          requestType:
+            typeof response.notification.request.content.data?.requestType === "string"
+              ? response.notification.request.content.data.requestType
+              : undefined,
+          tableId: response.notification.request.content.data?.tableId,
+        });
         maybeOpenTableFromData(response.notification.request.content.data as Record<string, unknown>);
       });
     })();
 
     return () => {
       cancelled = true;
+      logPushDebug("notification_listeners_removing");
       responseSubscription?.remove();
       receivedSubscription?.remove();
       pushTokenSubscription?.remove();
