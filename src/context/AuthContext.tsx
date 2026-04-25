@@ -49,8 +49,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signIn = useCallback(async (login: string, password: string) => {
-    const normalizedLogin = login.trim().toLowerCase();
-    const payload = await loginStaff(normalizedLogin, password);
+    const payload = await loginStaff(login, password);
     const bootstrap = await bootstrapStaffSession();
 
     setSession(

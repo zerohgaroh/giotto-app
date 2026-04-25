@@ -4,6 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import { getAccessToken, setAccessToken, subscribeAccessToken } from "./accessTokenStore";
+import { normalizeManagerPassword, normalizeStaffLogin, resolveStaffLoginCandidates } from "./staffCredentials";
 import { shouldRefreshAccessToken } from "./tokenFreshness";
 import type {
   FloorZone,
@@ -414,25 +415,45 @@ export async function bootstrapStaffSession() {
 }
 
 export async function loginStaff(login: string, password: string) {
-  const payload = {
-    method: "POST",
-    auth: false,
-    body: JSON.stringify({ login, password }),
-  } as const;
+  const candidates = resolveStaffLoginCandidates(login);
+  if (!candidates.length) {
+    throw new ApiError("Введите логин.", 400, "http");
+  }
 
-  try {
-    const response = await rawRequest<Record<string, unknown>>("/api/staff/auth/login", payload);
-    return await persistAuth(response);
-  } catch (error) {
-    if (!(error instanceof ApiError) || error.code !== "network") {
+  let lastError: unknown = null;
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
+    const payload = {
+      method: "POST",
+      auth: false,
+      body: JSON.stringify({ login: candidate, password }),
+    } as const;
+
+    try {
+      const response = await rawRequest<Record<string, unknown>>("/api/staff/auth/login", payload);
+      return await persistAuth(response);
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "network") {
+        // Mobile networks can briefly drop the very first request after app wake/start.
+        await sleep(700);
+        const retryResponse = await rawRequest<Record<string, unknown>>("/api/staff/auth/login", payload);
+        return await persistAuth(retryResponse);
+      }
+
+      if (
+        error instanceof ApiError &&
+        error.status === 401 &&
+        index < candidates.length - 1
+      ) {
+        lastError = error;
+        continue;
+      }
+
       throw error;
     }
-
-    // Mobile networks can briefly drop the very first request after app wake/start.
-    await sleep(700);
-    const response = await rawRequest<Record<string, unknown>>("/api/staff/auth/login", payload);
-    return await persistAuth(response);
   }
+
+  throw lastError instanceof Error ? lastError : new ApiError("Не удалось войти.", 401, "http");
 }
 
 export async function logoutStaff() {
@@ -646,9 +667,17 @@ export async function createManagerWaiter(payload: {
   password: string;
   tableIds: number[];
 }) {
+  const name = payload.name.trim();
+  const login = normalizeStaffLogin(payload.login);
+  const password = normalizeManagerPassword(payload.password);
   return request<ManagerWaiterDetail>("/api/staff/manager/waiters", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      ...payload,
+      name,
+      login,
+      password,
+    }),
   });
 }
 
@@ -660,9 +689,14 @@ export async function updateManagerWaiter(
     active?: boolean;
   },
 ) {
+  const normalizedPayload = {
+    ...payload,
+    ...(payload.name !== undefined ? { name: payload.name.trim() } : {}),
+    ...(payload.login !== undefined ? { login: normalizeStaffLogin(payload.login) } : {}),
+  };
   return request<ManagerWaiterDetail>(`/api/staff/manager/waiters/${waiterId}`, {
     method: "PATCH",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(normalizedPayload),
   });
 }
 
@@ -705,9 +739,10 @@ export async function deleteManagerWaiter(waiterId: string) {
 }
 
 export async function resetManagerWaiterPassword(waiterId: string, password: string) {
+  const normalizedPassword = normalizeManagerPassword(password);
   return request<ManagerWaiterDetail>(`/api/staff/manager/waiters/${waiterId}/reset-password`, {
     method: "POST",
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ password: normalizedPassword }),
   });
 }
 

@@ -88,8 +88,8 @@ EXPO_PUBLIC_API_BASE_URL=http://192.168.1.20:3000
 ## Push notifications
 
 Для Android push в Expo SDK 55 нужен dev build, а не Expo Go.
-Android waiter-устройства регистрируют native FCM token через `getDevicePushTokenAsync()`.
-`EXPO_PUBLIC_EAS_PROJECT_ID` нужен для Expo Push Service path на iOS, но Android direct FCM от него не зависит.
+Android waiter-устройства регистрируют оба токена: native FCM (`platform: android`) и Expo (`platform: expo`) как fallback-канал.
+`EXPO_PUBLIC_EAS_PROJECT_ID` обязателен для Expo Push path (iOS и Android fallback).
 
 ```bash
 npm install -g eas-cli

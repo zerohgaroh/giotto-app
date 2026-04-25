@@ -43,3 +43,23 @@ export function createAndroidPushRegistration(input: {
     ...(appVersion ? { appVersion } : {}),
   };
 }
+
+export function createExpoPushRegistration(input: {
+  expoToken: string;
+  deviceId: string;
+  appVersion?: string;
+}): PushDeviceRegistration | null {
+  const token = input.expoToken.trim();
+  const deviceId = input.deviceId.trim();
+  const appVersion = input.appVersion?.trim();
+  if (!token || !deviceId) {
+    return null;
+  }
+
+  return {
+    token,
+    platform: "expo",
+    deviceId,
+    ...(appVersion ? { appVersion } : {}),
+  };
+}

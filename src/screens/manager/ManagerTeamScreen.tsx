@@ -27,6 +27,7 @@ import {
   resetManagerWaiterPassword,
   updateManagerWaiter,
 } from "../../api/client";
+import { normalizeManagerPassword, normalizeStaffLogin } from "../../api/staffCredentials";
 import type { ManagerStackParamList } from "../../navigation/types";
 import { useRealtimeRefresh } from "../../realtime/useRealtimeRefresh";
 import { colors } from "../../theme/colors";
@@ -54,6 +55,22 @@ function emptyEditor(): EditorState {
 function asFiniteNumber(value: unknown, fallback = 0) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function parseApiError(error: unknown, fallback: string) {
+  if (!(error instanceof ApiError)) {
+    return fallback;
+  }
+  if (error.status === 401 || error.status === 403) {
+    return "Недостаточно прав для этого действия.";
+  }
+  if (error.status === 409) {
+    return "Конфликт данных. Проверь логин и активные назначения столов.";
+  }
+  if (typeof error.message === "string" && error.message.length > 0 && !error.message.startsWith("HTTP ")) {
+    return error.message;
+  }
+  return fallback;
 }
 
 function normalizeWaiter(waiter: ManagerWaiterSummary): ManagerWaiterSummary {
@@ -149,28 +166,48 @@ export function ManagerTeamScreen() {
   const activeTableIds = useMemo(() => hall?.tables.map((table) => table.tableId).sort((a, b) => a - b) ?? [], [hall?.tables]);
 
   const saveEditor = async () => {
+    const name = editor.name.trim();
+    const login = normalizeStaffLogin(editor.login);
+    const password = normalizeManagerPassword(editor.password);
+    if (!name) {
+      setErrorText("Введите имя официанта.");
+      return;
+    }
+    if (!login) {
+      setErrorText("Введите логин официанта.");
+      return;
+    }
+    if (!/^[a-z0-9._-]{3,40}$/.test(login)) {
+      setErrorText("Логин: 3-40 символов, только латиница, цифры, '.', '_' и '-'.");
+      return;
+    }
+    if (!editor.waiterId && password.length < 4) {
+      setErrorText("Пароль должен быть не короче 4 символов.");
+      return;
+    }
+
     setSaving(true);
     try {
       if (editor.waiterId) {
         await updateManagerWaiter(editor.waiterId, {
-          name: editor.name,
-          login: editor.login,
+          name,
+          login,
           active: editor.active,
         });
         await replaceManagerWaiterAssignments(editor.waiterId, editor.tableIds);
       } else {
         await createManagerWaiter({
-          name: editor.name,
-          login: editor.login,
-          password: editor.password,
+          name,
+          login,
+          password,
           tableIds: editor.tableIds,
         });
       }
       await pull();
       setEditorOpen(false);
       setErrorText("");
-    } catch {
-      setErrorText("Не удалось сохранить.");
+    } catch (error) {
+      setErrorText(parseApiError(error, "Не удалось сохранить."));
     } finally {
       setSaving(false);
     }
@@ -178,15 +215,21 @@ export function ManagerTeamScreen() {
 
   const submitPasswordReset = async () => {
     if (!passwordResetFor) return;
+    const password = normalizeManagerPassword(passwordDraft);
+    if (password.length < 4) {
+      setErrorText("Новый пароль должен быть не короче 4 символов.");
+      return;
+    }
+
     setSaving(true);
     try {
-      await resetManagerWaiterPassword(passwordResetFor.id, passwordDraft);
+      await resetManagerWaiterPassword(passwordResetFor.id, password);
       setPasswordDraft("");
       setPasswordResetFor(null);
       await pull();
       setErrorText("");
-    } catch {
-      setErrorText("Не удалось сменить пароль.");
+    } catch (error) {
+      setErrorText(parseApiError(error, "Не удалось сменить пароль."));
     } finally {
       setSaving(false);
     }
@@ -343,7 +386,7 @@ export function ManagerTeamScreen() {
                 <Text style={styles.fieldLabel}>Логин</Text>
                 <TextInput
                   value={editor.login}
-                  onChangeText={(login) => setEditor((current) => ({ ...current, login }))}
+                  onChangeText={(login) => setEditor((current) => ({ ...current, login: login.replace(/\s+/g, "").toLowerCase() }))}
                   placeholder="Логин"
                   placeholderTextColor="#8A847A"
                   autoCapitalize="none"

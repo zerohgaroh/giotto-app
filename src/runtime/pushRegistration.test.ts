@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createAndroidPushRegistration } from "./pushRegistration";
+import { createAndroidPushRegistration, createExpoPushRegistration } from "./pushRegistration";
 
 test("createAndroidPushRegistration normalizes a native Android push token", () => {
   const registration = createAndroidPushRegistration({
@@ -53,6 +53,31 @@ test("createAndroidPushRegistration ignores unsupported or empty device token pa
       },
       deviceId: "device-42",
       appVersion: "1.0.0",
+    }),
+    null,
+  );
+});
+
+test("createExpoPushRegistration normalizes Expo token payload", () => {
+  const registration = createExpoPushRegistration({
+    expoToken: " ExponentPushToken[xyz123] ",
+    deviceId: "  device-42  ",
+    appVersion: " 1.0.0 ",
+  });
+
+  assert.deepEqual(registration, {
+    token: "ExponentPushToken[xyz123]",
+    platform: "expo",
+    deviceId: "device-42",
+    appVersion: "1.0.0",
+  });
+});
+
+test("createExpoPushRegistration ignores empty token payload", () => {
+  assert.equal(
+    createExpoPushRegistration({
+      expoToken: "   ",
+      deviceId: "device-42",
     }),
     null,
   );

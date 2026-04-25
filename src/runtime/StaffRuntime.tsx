@@ -22,7 +22,12 @@ import { useWaiterRealtime } from "../realtime/useWaiterRealtime";
 import { colors } from "../theme/colors";
 import type { PushDeviceRegistration } from "../types/domain";
 import { createIncomingServiceAlert, createIncomingServiceAlertFromRealtime, type IncomingServiceAlert } from "./incomingServiceAlerts";
-import { createAndroidPushRegistration, getAndroidNotificationChannelInput, NOTIFICATION_CHANNEL_ID } from "./pushRegistration";
+import {
+  createAndroidPushRegistration,
+  createExpoPushRegistration,
+  getAndroidNotificationChannelInput,
+  NOTIFICATION_CHANNEL_ID,
+} from "./pushRegistration";
 
 const DEVICE_ID_KEY = "giotto.mobile.deviceId.v1";
 const ALERT_DEDUPE_MS = 6_000;
@@ -133,7 +138,54 @@ function extractTableId(input: unknown) {
   return Math.floor(value);
 }
 
-async function registerForPush(): Promise<PushDeviceRegistration | null> {
+function resolveExpoProjectId() {
+  return (
+    Constants.easConfig?.projectId ??
+    (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId ??
+    process.env.EXPO_PUBLIC_EAS_PROJECT_ID?.trim()
+  );
+}
+
+async function getExpoPushRegistration(input: { deviceId: string; appVersion: string }): Promise<PushDeviceRegistration | null> {
+  const projectId = resolveExpoProjectId();
+  if (!projectId) {
+    console.warn("[push] Missing Expo projectId (EXPO_PUBLIC_EAS_PROJECT_ID)");
+    return null;
+  }
+
+  logPushDebug("expo_push_project_id_resolved", {
+    projectId,
+    deviceId: input.deviceId,
+  });
+
+  let tokenResponse: { data: string };
+  try {
+    tokenResponse = await Notifications.getExpoPushTokenAsync({ projectId });
+  } catch (error) {
+    console.warn("[push] Failed to obtain Expo push token (network or Expo service)", error);
+    return null;
+  }
+
+  const payload = createExpoPushRegistration({
+    expoToken: tokenResponse.data,
+    deviceId: input.deviceId,
+    appVersion: input.appVersion,
+  });
+
+  if (!payload) {
+    console.warn("[push] Expo push token response is empty");
+    return null;
+  }
+
+  logPushDebug("expo_push_token_received", {
+    tokenPreview: previewPushToken(payload.token),
+    deviceId: payload.deviceId,
+  });
+
+  return payload;
+}
+
+async function registerForPush(): Promise<PushDeviceRegistration[]> {
   logPushDebug("register_for_push_started", {
     platform: Platform.OS,
     isDevice: Device.isDevice,
@@ -142,11 +194,11 @@ async function registerForPush(): Promise<PushDeviceRegistration | null> {
 
   if (!Device.isDevice) {
     console.info("[push] Skipping registration: physical device is required");
-    return null;
+    return [];
   }
   if (isExpoGo) {
     console.info("[push] Skipping registration in Expo Go");
-    return null;
+    return [];
   }
   if (!Notifications) {
     Notifications = await import("expo-notifications");
@@ -191,11 +243,12 @@ async function registerForPush(): Promise<PushDeviceRegistration | null> {
 
   if (!granted) {
     console.info("[push] Notification permission is not granted");
-    return null;
+    return [];
   }
 
   const deviceId = await getOrCreateDeviceId();
   const appVersion = Constants.expoConfig?.version ?? "1.0.0";
+  const registrations: PushDeviceRegistration[] = [];
 
   if (Platform.OS === "android") {
     try {
@@ -210,61 +263,37 @@ async function registerForPush(): Promise<PushDeviceRegistration | null> {
         deviceId,
         appVersion,
       });
-      if (!payload) {
+      if (payload) {
+        logPushDebug("android_push_registration_payload_ready", {
+          platform: payload.platform,
+          tokenPreview: previewPushToken(payload.token),
+          deviceId: payload.deviceId,
+          appVersion: payload.appVersion,
+        });
+        registrations.push(payload);
+      } else {
         console.warn("[push] Android device push token response is invalid");
-        return null;
       }
-      logPushDebug("android_push_registration_payload_ready", {
-        platform: payload.platform,
-        tokenPreview: previewPushToken(payload.token),
-        deviceId: payload.deviceId,
-        appVersion: payload.appVersion,
-      });
-      return payload;
     } catch (error) {
       console.warn("[push] Failed to obtain Android FCM device token", error);
-      return null;
     }
   }
 
-  const projectId =
-    Constants.easConfig?.projectId ??
-    (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId ??
-    process.env.EXPO_PUBLIC_EAS_PROJECT_ID?.trim();
-  if (!projectId) {
-    console.warn("[push] Missing Expo projectId (EXPO_PUBLIC_EAS_PROJECT_ID)");
-    return null;
+  const expoPayload = await getExpoPushRegistration({ deviceId, appVersion });
+  if (expoPayload) {
+    registrations.push(expoPayload);
   }
 
-  logPushDebug("expo_push_project_id_resolved", {
-    projectId,
-    deviceId,
-  });
-
-  let tokenResponse: { data: string };
-  try {
-    tokenResponse = await Notifications.getExpoPushTokenAsync({ projectId });
-  } catch (error) {
-    console.warn("[push] Failed to obtain Expo push token (network or Expo service)", error);
-    return null;
+  if (!registrations.length) {
+    logPushDebug("register_for_push_no_payloads");
+  } else {
+    logPushDebug("register_for_push_payloads_ready", {
+      count: registrations.length,
+      platforms: registrations.map((item) => item.platform),
+    });
   }
 
-  if (!tokenResponse.data?.trim()) {
-    console.warn("[push] Expo push token response is empty");
-    return null;
-  }
-
-  logPushDebug("expo_push_token_received", {
-    tokenPreview: previewPushToken(tokenResponse.data.trim()),
-    deviceId,
-  });
-
-  return {
-    token: tokenResponse.data.trim(),
-    platform: "expo",
-    appVersion,
-    deviceId,
-  };
+  return registrations;
 }
 
 function maybeOpenTableFromData(data: Record<string, unknown> | undefined) {
@@ -428,7 +457,21 @@ export function StaffRuntime() {
     return false;
   }, []);
 
-  const syncPushToken = useCallback(async (options?: { force?: boolean; payload?: PushDeviceRegistration }) => {
+  const syncPushPayloads = useCallback(
+    async (payloads: PushDeviceRegistration[]) => {
+      let successCount = 0;
+      for (const payload of payloads) {
+        const synced = await syncPushTokenWithRetry(payload);
+        if (synced) {
+          successCount += 1;
+        }
+      }
+      return successCount > 0;
+    },
+    [syncPushTokenWithRetry],
+  );
+
+  const syncPushToken = useCallback(async (options?: { force?: boolean; payloads?: PushDeviceRegistration[] }) => {
     if (!session || session.role !== "waiter") {
       logPushDebug("push_token_sync_skipped_session", {
         hasSession: Boolean(session),
@@ -454,20 +497,19 @@ export function StaffRuntime() {
     try {
       logPushDebug("push_token_sync_started", {
         force: Boolean(options?.force),
-        hasPayloadOverride: Boolean(options?.payload),
+        hasPayloadOverride: Boolean(options?.payloads?.length),
       });
-      const payload = options?.payload ?? (await registerForPush());
-      if (!payload) {
+      const payloads = options?.payloads?.length ? options.payloads : await registerForPush();
+      if (!payloads.length) {
         logPushDebug("push_token_sync_aborted_no_payload");
         return;
       }
-      const synced = await syncPushTokenWithRetry(payload);
+      const synced = await syncPushPayloads(payloads);
       if (synced) {
         lastPushSyncAtRef.current = Date.now();
         logPushDebug("push_token_sync_completed", {
-          platform: payload.platform,
-          tokenPreview: previewPushToken(payload.token),
-          deviceId: payload.deviceId,
+          count: payloads.length,
+          platforms: payloads.map((item) => item.platform),
         });
       }
     } catch (error) {
@@ -475,7 +517,7 @@ export function StaffRuntime() {
     } finally {
       pushSyncInFlightRef.current = false;
     }
-  }, [session, syncPushTokenWithRetry]);
+  }, [session, syncPushPayloads]);
 
   const popupTransform = useMemo(
     () => [
@@ -619,16 +661,22 @@ export function StaffRuntime() {
             tokenPreview: typeof token.data === "string" ? previewPushToken(token.data) : "(non-string)",
           });
           const deviceId = await getOrCreateDeviceId();
+          const appVersion = Constants.expoConfig?.version ?? "1.0.0";
           const payload = createAndroidPushRegistration({
             devicePushToken: token,
             deviceId,
-            appVersion: Constants.expoConfig?.version ?? "1.0.0",
+            appVersion,
           });
           if (payload) {
             console.info("[push] Android FCM token refreshed");
+            const payloads: PushDeviceRegistration[] = [payload];
+            const expoPayload = await getExpoPushRegistration({ deviceId, appVersion });
+            if (expoPayload) {
+              payloads.push(expoPayload);
+            }
             await syncPushToken({
               force: true,
-              payload,
+              payloads,
             });
             return;
           }
