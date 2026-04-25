@@ -119,7 +119,13 @@ npm run start:lan
 ## Phone launch troubleshooting
 
 - Ошибка вида `exp://... request timed out` означает, что телефон не видит Metro server по LAN.
-- Запускайте через `npm run start` (`tunnel`) и открывайте проект из Expo Go тем же аккаунтом Expo.
+- Для стабильного запуска телефона используйте `npm run start:phone`:
+  - команда гасит старые `expo/metro` процессы,
+  - запускает новый Metro в tunnel режиме на 8081,
+  - очищает кэш bundler.
+- Проверяйте URL в терминале:
+  - правильно для телефона: `exp://...exp.direct`
+  - проблемный LAN-режим: `exp://172.x.x.x:8081` (как на вашем скриншоте).
 - Для входа в приложение с телефона backend должен быть доступен с телефона: используйте публичный HTTPS URL или LAN IP backend-машины, но не `localhost`.
 
 ## Compatibility notes
