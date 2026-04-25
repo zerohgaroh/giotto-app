@@ -103,11 +103,24 @@ npm install
 npm run start
 ```
 
+`npm run start` использует `--tunnel`, чтобы приложение стабильно открывалось на реальном телефоне даже если LAN/IP недоступны.
+Если вы в одной Wi-Fi сети и хотите быстрее hot-reload, используйте:
+
+```bash
+npm run start:lan
+```
+
 Дополнительно:
 - `npm test` — unit tests.
 - `a` — Android.
 - `i` — iOS.
 - `w` — web preview.
+
+## Phone launch troubleshooting
+
+- Ошибка вида `exp://... request timed out` означает, что телефон не видит Metro server по LAN.
+- Запускайте через `npm run start` (`tunnel`) и открывайте проект из Expo Go тем же аккаунтом Expo.
+- Для входа в приложение с телефона backend должен быть доступен с телефона: используйте публичный HTTPS URL или LAN IP backend-машины, но не `localhost`.
 
 ## Compatibility notes
 
